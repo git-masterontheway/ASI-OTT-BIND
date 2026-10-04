@@ -98,13 +98,13 @@
           Your browser does not support HTML5 video playback.
         </video>
 
-        <!-- Embedded Iframe Player (Direct On-Site, Sandboxed with form & script support) -->
+        <!-- Embedded Iframe Player (Direct On-Site, Full Media Capabilities) -->
         <iframe 
           id="embed-iframe" 
           style="display: none;" 
           allowfullscreen 
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-top-navigation-by-user-activation allow-popups allow-popups-to-escape-sandbox"
           referrerpolicy="no-referrer-when-downgrade"
         ></iframe>
 
@@ -124,6 +124,11 @@
             </div>
           </div>
 
+          <!-- Quick Skip Visual Feedback Badge -->
+          <div class="quick-skip-badge" id="quick-skip-badge">
+            <span id="quick-skip-text">+10s</span>
+          </div>
+
           <!-- Center Big Play/Pause Button Overlay -->
           <div class="center-play-trigger" id="center-play-btn" title="Play / Pause Video">
             <i class="fa-solid fa-play" id="center-play-icon" style="margin-left: 4px;"></i>
@@ -131,8 +136,9 @@
 
           <!-- Bottom Overlay Bar with Navigation Controls & Timeline -->
           <div class="player-bottom-controls">
-            <!-- Seekbar / Progress Container -->
+            <!-- Seekbar / Progress Container with Smooth Scrubbing & Hover Tooltip -->
             <div class="progress-container" id="progress-container">
+              <div class="seek-tooltip" id="seek-tooltip">00:00:00</div>
               <div class="progress-bar" id="progress-bar">
                 <div class="progress-thumb"></div>
               </div>
@@ -167,7 +173,7 @@
                 </button>
 
                 <!-- In-Player Integrated Settings Gear (Speed, Brightness, Audio Booster) -->
-                <button class="ctrl-btn" id="ctrl-settings-btn" title="Player Settings (Speed, Brightness, Audio Boost)">
+                <button class="ctrl-btn" id="ctrl-settings-btn" title="Player Settings (Speed up to 3x, Brightness, Audio Boost)">
                   <i class="fa-solid fa-gear"></i>
                 </button>
 
@@ -186,12 +192,21 @@
               <button class="settings-close-btn" id="settings-close-btn"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <!-- Playback Speed -->
+            <!-- Playback Speed with Expanded Options Up To 3x & Slider UI -->
             <div class="settings-group">
               <div class="settings-label-row">
-                <span><i class="fa-solid fa-gauge-high"></i> Playback Speed</span>
+                <span><i class="fa-solid fa-gauge-high"></i> Playback Speed (up to 3x)</span>
                 <span class="control-val-badge" id="val-speed">1.0x</span>
               </div>
+              <input 
+                type="range" 
+                id="speed-slider" 
+                class="slider-styled" 
+                min="0.25" 
+                max="3.0" 
+                value="1.0" 
+                step="0.25"
+              >
               <div class="speed-buttons">
                 <button class="speed-btn" data-speed="0.5">0.5x</button>
                 <button class="speed-btn" data-speed="0.75">0.75x</button>
@@ -199,6 +214,7 @@
                 <button class="speed-btn" data-speed="1.25">1.25x</button>
                 <button class="speed-btn" data-speed="1.5">1.5x</button>
                 <button class="speed-btn" data-speed="2.0">2.0x</button>
+                <button class="speed-btn" data-speed="3.0">3.0x</button>
               </div>
             </div>
 
@@ -279,20 +295,20 @@
       </div>
     </div>
 
-    <!-- 3. STRUCTURED DOWNLOAD SECTION BY QUALITY (480p, 720p, 1080p) -->
+    <!-- 3. UNIFIED DOWNLOAD CENTER (Single Unified Card with 480p, 720p, 1080p) -->
     <div class="download-section-container" id="download-section">
       <div class="download-section-header">
         <div>
           <h2 class="section-title">
             <i class="fa-solid fa-cloud-arrow-down" style="color: var(--accent-cyan);"></i>
-            Quality Download Center
+            Unified Quality Download Hub
           </h2>
           <p class="download-section-subtitle">
-            Structured downloads available in 480p, 720p, and 1080p quality tiers. Click "Cloud Direct" to initiate file download immediately with zero redirects.
+            Single verified download card with genuine 480p, 720p, and 1080p tiers. Direct media delivery with zero redirects and strict false-download prevention.
           </p>
         </div>
         <span class="streamlined-badge">
-          <i class="fa-solid fa-circle-check"></i> Verified Direct Links
+          <i class="fa-solid fa-shield-halved"></i> Verified Direct Downloads
         </span>
       </div>
 
@@ -300,16 +316,15 @@
       <div class="dl-status-banner" id="dl-status-banner">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
           <div class="dl-spinner"></div>
-          <span id="dl-status-text">Initiating Cloud Direct download...</span>
+          <span id="dl-status-text">Resolving direct download link...</span>
         </div>
         <span id="dl-status-badge" style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 600;">Processing</span>
       </div>
 
-      <!-- Structured Quality Cards Grid -->
-      <div class="quality-download-grid" id="quality-download-grid">
-        <!-- Rendered dynamically by player.js -->
-        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
-          <i class="fa-solid fa-circle-notch fa-spin"></i> Loading download options...
+      <!-- Single Unified Download Card (Rendered dynamically by player.js) -->
+      <div class="unified-download-container" id="unified-download-container">
+        <div style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+          <i class="fa-solid fa-circle-notch fa-spin"></i> Preparing verified download tiers...
         </div>
       </div>
 

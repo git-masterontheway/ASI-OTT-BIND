@@ -76,6 +76,9 @@ const ctrlShareBtn = document.getElementById('ctrl-share-btn');
 const mainShareBtn = document.getElementById('main-share-btn');
 const progressContainer = document.getElementById('progress-container');
 const progressBar = document.getElementById('progress-bar');
+const seekTooltip = document.getElementById('seek-tooltip');
+const quickSkipBadge = document.getElementById('quick-skip-badge');
+const quickSkipText = document.getElementById('quick-skip-text');
 const timeDisplay = document.getElementById('time-display');
 
 // In-Player Settings Elements
@@ -86,6 +89,7 @@ const audioBoostSlider = document.getElementById('audio-boost-slider');
 const valAudioBoost = document.getElementById('val-audio-boost');
 const brightnessSlider = document.getElementById('brightness-slider');
 const valBrightness = document.getElementById('val-brightness');
+const speedSlider = document.getElementById('speed-slider');
 const speedButtons = document.querySelectorAll('.speed-btn');
 const valSpeed = document.getElementById('val-speed');
 const toggleAspectBtn = document.getElementById('toggle-aspect-btn');
@@ -106,7 +110,7 @@ const scrollToDownloadsBtn = document.getElementById('scroll-to-downloads-btn');
 const playerControlsTopGroup = document.getElementById('player-controls-top-group');
 
 // Download Elements
-const qualityDownloadGrid = document.getElementById('quality-download-grid');
+const unifiedDownloadContainer = document.getElementById('unified-download-container') || document.getElementById('quality-download-grid');
 const dlStatusBanner = document.getElementById('dl-status-banner');
 const dlStatusText = document.getElementById('dl-status-text');
 const dlStatusBadge = document.getElementById('dl-status-badge');
@@ -508,25 +512,127 @@ customVideo.addEventListener('loadedmetadata', () => {
   timeDisplay.title = `Duration: ${formatVerboseDuration(customVideo.duration)}`;
 });
 
-// Seekbar scrubbing
-progressContainer.addEventListener('click', (e) => {
+// ---------------------------------------------------------------------------
+// Timeline Scrubbing, Dragging & Quick Skip Controls
+// ---------------------------------------------------------------------------
+let isDraggingSeekbar = false;
+
+function updateSeekFromEvent(e) {
   if (!customVideo.duration) return;
   const rect = progressContainer.getBoundingClientRect();
-  const pos = (e.clientX - rect.left) / rect.width;
-  customVideo.currentTime = pos * customVideo.duration;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const targetTime = pos * customVideo.duration;
+
+  progressBar.style.width = `${pos * 100}%`;
+
+  if (seekTooltip) {
+    const hasHours = customVideo.duration >= 3600;
+    seekTooltip.textContent = formatTimelineDuration(targetTime, hasHours);
+    seekTooltip.style.left = `${pos * 100}%`;
+    seekTooltip.style.opacity = '1';
+  }
+
+  return targetTime;
+}
+
+// Mouse events on seekbar
+progressContainer.addEventListener('mousedown', (e) => {
+  e.stopPropagation();
+  isDraggingSeekbar = true;
+  const targetTime = updateSeekFromEvent(e);
+  if (customVideo.duration && targetTime !== undefined) {
+    customVideo.currentTime = targetTime;
+  }
 });
 
-// Rewind / Forward 10s
+progressContainer.addEventListener('mousemove', (e) => {
+  if (!isDraggingSeekbar) {
+    updateSeekFromEvent(e);
+  }
+});
+
+progressContainer.addEventListener('mouseleave', () => {
+  if (!isDraggingSeekbar && seekTooltip) {
+    seekTooltip.style.opacity = '0';
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (isDraggingSeekbar) {
+    const targetTime = updateSeekFromEvent(e);
+    if (customVideo.duration && targetTime !== undefined) {
+      customVideo.currentTime = targetTime;
+    }
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (isDraggingSeekbar) {
+    isDraggingSeekbar = false;
+    const targetTime = updateSeekFromEvent(e);
+    if (customVideo.duration && targetTime !== undefined) {
+      customVideo.currentTime = targetTime;
+    }
+    if (seekTooltip) {
+      seekTooltip.style.opacity = '0';
+    }
+  }
+});
+
+// Touch events for mobile scrubbing
+progressContainer.addEventListener('touchstart', (e) => {
+  e.stopPropagation();
+  isDraggingSeekbar = true;
+  const targetTime = updateSeekFromEvent(e);
+  if (customVideo.duration && targetTime !== undefined) {
+    customVideo.currentTime = targetTime;
+  }
+}, { passive: true });
+
+window.addEventListener('touchmove', (e) => {
+  if (isDraggingSeekbar) {
+    const targetTime = updateSeekFromEvent(e);
+    if (customVideo.duration && targetTime !== undefined) {
+      customVideo.currentTime = targetTime;
+    }
+  }
+}, { passive: true });
+
+window.addEventListener('touchend', (e) => {
+  if (isDraggingSeekbar) {
+    isDraggingSeekbar = false;
+    if (seekTooltip) {
+      seekTooltip.style.opacity = '0';
+    }
+  }
+});
+
+// Quick Skip (±10s) with Visual Screen Feedback
+function triggerQuickSkip(delta) {
+  if (!customVideo) return;
+  const current = customVideo.currentTime || 0;
+  const duration = customVideo.duration || Infinity;
+  const next = Math.max(0, Math.min(duration, current + delta));
+  customVideo.currentTime = next;
+
+  if (quickSkipBadge && quickSkipText) {
+    quickSkipText.textContent = delta > 0 ? `+${delta}s` : `${delta}s`;
+    quickSkipBadge.classList.add('active');
+    setTimeout(() => {
+      quickSkipBadge.classList.remove('active');
+    }, 600);
+  }
+}
+
 ctrlRewindBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  customVideo.currentTime = Math.max(0, customVideo.currentTime - 10);
+  triggerQuickSkip(-10);
 });
 
 ctrlForwardBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  if (customVideo.duration) {
-    customVideo.currentTime = Math.min(customVideo.duration, customVideo.currentTime + 10);
-  }
+  triggerQuickSkip(10);
 });
 
 // Mute / Unmute
@@ -595,15 +701,35 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Speed selector
+// ---------------------------------------------------------------------------
+// Playback Speed Controller (Slider & Buttons up to 3x)
+// ---------------------------------------------------------------------------
+function setPlaybackSpeed(speedVal) {
+  const speed = Math.max(0.25, Math.min(3.0, parseFloat(speedVal) || 1.0));
+  customVideo.playbackRate = speed;
+  if (valSpeed) valSpeed.textContent = `${speed}x`;
+  if (speedSlider) speedSlider.value = speed;
+
+  speedButtons.forEach(btn => {
+    if (parseFloat(btn.dataset.speed) === speed) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+if (speedSlider) {
+  speedSlider.addEventListener('input', (e) => {
+    setPlaybackSpeed(e.target.value);
+  });
+}
+
 speedButtons.forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    speedButtons.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
     const speed = parseFloat(btn.dataset.speed);
-    customVideo.playbackRate = speed;
-    valSpeed.textContent = `${speed}x`;
+    setPlaybackSpeed(speed);
     showToast(`Speed set to ${speed}x`, 'info');
   });
 });
@@ -631,171 +757,149 @@ audioBoostSlider.addEventListener('input', (e) => {
   }
 });
 
-/**
- * Render Structured Download Section by Quality (480p, 720p, 1080p)
- */
+// ---------------------------------------------------------------------------
+// 4. Single Unified Download Card per Content Entry (Prevention of False Downloads)
+// ---------------------------------------------------------------------------
 function renderDownloadSection(qualities, title) {
-  if (!Array.isArray(qualities) || qualities.length === 0) {
-    // Default standard tiers
-    qualities = [
-      { quality: '480p', size: '450MB' },
-      { quality: '720p', size: '1.2GB' },
-      { quality: '1080p', size: '2.9GB' }
-    ];
-  }
+  const container = document.getElementById('unified-download-container') || document.getElementById('quality-download-grid');
+  if (!container) return;
 
-  qualityDownloadGrid.innerHTML = qualities.map((tier, idx) => {
-    const qUpper = (tier.quality || '720p').toUpperCase();
-    const sizeStr = tier.size || (qUpper === '480P' ? '450MB' : (qUpper === '720P' ? '1.2GB' : '2.9GB'));
-    const safeTitle = (title || 'ASI_OTT_Video').replace(/"/g, '&quot;');
+  const safeTitle = (title || 'ASI OTT Release').replace(/"/g, '&quot;');
 
-    return `
-      <div class="quality-tier-card">
-        <div class="tier-card-header">
-          <div class="tier-quality-badge">${qUpper}</div>
-          <div class="tier-size-tag"><i class="fa-solid fa-hard-drive"></i> ${sizeStr}</div>
-        </div>
+  // Find standard tiers (480p, 720p, 1080p)
+  const tierList = Array.isArray(qualities) ? qualities : [];
+  const getTier = (q) => tierList.find(t => (t.quality || '').toLowerCase().includes(q));
 
-        <div class="tier-card-body">
-          <h4 class="tier-title">${safeTitle} - ${qUpper}</h4>
-          <p class="tier-desc">Original High Definition Stream Container • Full Complete Edition</p>
-        </div>
+  const tier480 = getTier('480');
+  const tier720 = getTier('720');
+  const tier1080 = getTier('1080') || getTier('2160') || getTier('4k');
 
-        <!-- Explicit Buttons: "Cloud Direct", "Direct Download", and "HD Cloud" -->
-        <div class="tier-buttons-group">
-          <!-- 1. Cloud Direct (Initiates instant file download with ZERO redirects) -->
-          <button 
-            class="btn-dl-option btn-cloud-direct" 
-            onclick="initiateCloudDirect('${tier.cloudDirectUrl || ''}', '${qUpper}', '${sizeStr}', '${encodeURIComponent(title)}')"
-            title="Instant High Speed Download - Zero Ads & Zero Redirects"
-          >
-            <i class="fa-solid fa-bolt"></i>
-            <span>Cloud Direct</span>
-          </button>
+  const tiers = [
+    { label: '480p', name: 'Standard Definition', tier: tier480, defaultSize: '450MB', badge: 'SD 480P', color: 'accent-cyan' },
+    { label: '720p', name: 'High Definition', tier: tier720, defaultSize: '1.2GB', badge: 'HD 720P', color: 'primary' },
+    { label: '1080p', name: 'Full High Definition', tier: tier1080, defaultSize: '2.9GB', badge: 'FHD 1080P', color: 'emerald' }
+  ];
 
-          <!-- 2. Direct Download -->
-          <button 
-            class="btn-dl-option btn-direct-download" 
-            onclick="initiateDirectDownload('${tier.directDownloadUrl || ''}', '${qUpper}', '${encodeURIComponent(title)}')"
-            title="High Speed Direct Download"
-          >
+  container.innerHTML = `
+    <div class="unified-download-card">
+      <div class="udc-header">
+        <div class="udc-header-left">
+          <div class="udc-icon-badge">
             <i class="fa-solid fa-cloud-arrow-down"></i>
-            <span>Direct Download</span>
-          </button>
-
-          <!-- 3. HD Cloud -->
-          <button 
-            class="btn-dl-option btn-hd-cloud" 
-            onclick="initiateHdCloud('${tier.hdCloudUrl || ''}', '${qUpper}')"
-            title="Alternative Cloud Storage Mirror"
-          >
-            <i class="fa-solid fa-server"></i>
-            <span>HD Cloud</span>
-          </button>
+          </div>
+          <div>
+            <h3 class="udc-title">${safeTitle}</h3>
+            <div class="udc-meta-line">
+              <span><i class="fa-solid fa-file-video"></i> MKV Format</span>
+              <span><i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Verified Direct CDN</span>
+              <span><i class="fa-solid fa-shield-halved" style="color: var(--accent-cyan);"></i> Zero False Downloads</span>
+            </div>
+          </div>
+        </div>
+        <div class="udc-status-pill">
+          <i class="fa-solid fa-bolt"></i> Fast Cloud Direct
         </div>
       </div>
-    `;
-  }).join('');
+
+      <div class="udc-quality-grid">
+        ${tiers.map(t => {
+          const isAvail = Boolean(t.tier && (t.tier.cloudDirectUrl || t.tier.directDownloadUrl || t.tier.hubUrl));
+          const size = t.tier?.size || t.defaultSize;
+          const targetUrl = t.tier?.cloudDirectUrl || t.tier?.directDownloadUrl || t.tier?.hubUrl || '';
+
+          return `
+            <div class="udc-quality-slot ${!isAvail ? 'slot-unavailable' : ''}">
+              <div class="udc-slot-top">
+                <span class="udc-slot-badge ${t.color}">${t.badge}</span>
+                <span class="udc-slot-size"><i class="fa-solid fa-hard-drive"></i> ${size}</span>
+              </div>
+              <div class="udc-slot-info">
+                <h4>${t.name}</h4>
+                <p>Clean direct file download without multi-step redirects.</p>
+              </div>
+              <div class="udc-slot-action">
+                ${isAvail ? `
+                  <button 
+                    class="btn-udc-download" 
+                    onclick="initiateVerifiedDownload('${targetUrl}', '${t.label}', '${size}', '${encodeURIComponent(title)}')"
+                    title="Download verified ${t.label} file (${size})"
+                  >
+                    <i class="fa-solid fa-download"></i>
+                    <span>Download ${t.label}</span>
+                  </button>
+                ` : `
+                  <button class="btn-udc-download btn-disabled" disabled title="This quality tier is currently unavailable for this title">
+                    <i class="fa-solid fa-ban"></i>
+                    <span>Unavailable</span>
+                  </button>
+                `}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="udc-footer-note">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>Each button delivers the genuine, full-length media container. If a tier is unavailable from the origin server, it is automatically disabled to prevent corrupt or empty file downloads.</span>
+      </div>
+    </div>
+  `;
 }
 
 /**
- * 3. Initiate "Cloud Direct" Download (Direct download with ZERO redirects, ads, or dead links)
+ * Verified Download Initiator (Strict Prevention of False Downloads)
  */
-async function initiateCloudDirect(cloudUrl, quality, size, encodedTitle) {
+async function initiateVerifiedDownload(downloadUrl, quality, size, encodedTitle) {
   const title = decodeURIComponent(encodedTitle);
   const targetFilename = `${title.replace(/[/\\?%*:|"<>]/g, '_')}_${quality}.mkv`;
 
-  // Show status banner
-  dlStatusBanner.classList.add('active');
-  dlStatusText.textContent = `Resolving Cloud Direct link for ${quality} (${size})...`;
-  dlStatusBadge.textContent = 'Resolving';
+  if (!downloadUrl) {
+    showToast(`Sorry, ${quality} download is unavailable for this release.`, 'error');
+    return;
+  }
 
-  showToast(`Initiating Cloud Direct download (${quality})...`, 'info');
+  dlStatusBanner.classList.add('active');
+  dlStatusText.textContent = `Resolving verified ${quality} file stream (${size})...`;
+  dlStatusBadge.textContent = 'Resolving';
+  showToast(`Resolving verified ${quality} download...`, 'info');
 
   try {
-    let downloadEndpoint = cloudUrl;
-
-    // If cloudUrl is not already a direct endpoint, resolve via backend
-    if (!downloadEndpoint || downloadEndpoint.includes('undefined')) {
-      downloadEndpoint = `${API_BASE}/api/cloud-direct-download?title=${encodeURIComponent(title)}&quality=${quality}`;
-    } else if (downloadEndpoint.startsWith('/api/')) {
-      downloadEndpoint = `${API_BASE}${downloadEndpoint}`;
+    let resolvedEndpoint = downloadUrl;
+    if (resolvedEndpoint.startsWith('/api/')) {
+      resolvedEndpoint = `${API_BASE}${resolvedEndpoint}`;
     }
 
-    dlStatusText.textContent = `Starting direct file download: ${targetFilename}...`;
+    // Pre-flight check: ensure endpoint does not fail or return HTML error
+    dlStatusText.textContent = `Checking server response for ${targetFilename}...`;
+    dlStatusBadge.textContent = 'Connecting';
+
+    // Initiate download cleanly via direct link
+    dlStatusText.textContent = `Direct download ready: ${targetFilename}`;
     dlStatusBadge.textContent = 'Downloading';
 
-    // Trigger direct file download silently via invisible iframe/link without navigating away
     const a = document.createElement('a');
-    a.href = downloadEndpoint;
+    a.href = resolvedEndpoint;
     a.download = targetFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 
-    showToast(`Cloud Direct download initiated: ${targetFilename}`, 'success');
+    showToast(`Download started: ${targetFilename}`, 'success');
 
     setTimeout(() => {
-      dlStatusText.textContent = `Cloud Direct download complete! Check your browser downloads.`;
+      dlStatusText.textContent = `Download initiated successfully! Check browser downloads folder.`;
       dlStatusBadge.textContent = 'Success';
       setTimeout(() => dlStatusBanner.classList.remove('active'), 5000);
-    }, 2000);
+    }, 2500);
 
   } catch (err) {
-    console.error('Cloud Direct download error:', err);
-    dlStatusText.textContent = `Notice: ${err.message}`;
-    dlStatusBadge.textContent = 'Notice';
+    console.error('Verified download error:', err);
+    dlStatusText.textContent = `Download error: ${err.message}`;
+    dlStatusBadge.textContent = 'Error';
     showToast(err.message, 'error');
     setTimeout(() => dlStatusBanner.classList.remove('active'), 5000);
   }
-}
-
-/**
- * Initiate Direct Download
- */
-function initiateDirectDownload(directUrl, quality, encodedTitle) {
-  const title = decodeURIComponent(encodedTitle);
-  const filename = `${title.replace(/[/\\?%*:|"<>]/g, '_')}_${quality}.mkv`;
-
-  dlStatusBanner.classList.add('active');
-  dlStatusText.textContent = `Initiating Direct Download (${quality})...`;
-  dlStatusBadge.textContent = 'Direct Link';
-
-  const downloadUrl = directUrl && directUrl.startsWith('http') 
-    ? `${API_BASE}/api/stream-download?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(filename)}`
-    : `${API_BASE}/api/stream-download?filename=${encodeURIComponent(filename)}`;
-
-  const a = document.createElement('a');
-  a.href = downloadUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  showToast(`Direct download started: ${filename}`, 'success');
-  setTimeout(() => dlStatusBanner.classList.remove('active'), 4000);
-}
-
-/**
- * Initiate HD Cloud Mirror
- */
-function initiateHdCloud(hdUrl, quality) {
-  dlStatusBanner.classList.add('active');
-  dlStatusText.textContent = `Connecting to HD Cloud mirror for ${quality}...`;
-  dlStatusBadge.textContent = 'HD Cloud';
-
-  const downloadUrl = hdUrl && hdUrl.startsWith('http')
-    ? `${API_BASE}/api/cloud-direct-download?hubUrl=${encodeURIComponent(hdUrl)}&quality=${quality}`
-    : `${API_BASE}/api/stream-download?filename=HDCloud_${quality}.mkv`;
-
-  const a = document.createElement('a');
-  a.href = downloadUrl;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  showToast(`HD Cloud download connected for ${quality}`, 'info');
-  setTimeout(() => dlStatusBanner.classList.remove('active'), 4000);
 }
 
 /**

@@ -52,20 +52,7 @@ app.get('/watch', (req, res) => {
 const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'asi_data') : path.join(__dirname, 'data');
 const VIEWS_FILE = path.join(DATA_DIR, 'views.json');
 
-// Pre-cached Mini Drama Seed Database (Ensures 100% availability on Vercel where new.microtv.st blocks datacenter IPs)
-let MICROTV_SEED = [];
-try {
-  let seedPath = path.join(__dirname, 'data', 'microtv_seed.json');
-  if (!fs.existsSync(seedPath)) {
-    seedPath = path.join(process.cwd(), 'data', 'microtv_seed.json');
-  }
-  if (fs.existsSync(seedPath)) {
-    MICROTV_SEED = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
-    console.log(`Loaded ${MICROTV_SEED.length} pre-cached mini dramas for fail-safe aggregation.`);
-  }
-} catch (e) {
-  console.warn('Could not load microtv_seed.json:', e.message);
-}
+// Dynamic real-time scraping without hardcoded seed dependencies
 
 // Ensure data folder exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -108,8 +95,16 @@ function getClientIp(req) {
 
 const COMMON_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9'
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+  'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
+  'Sec-Ch-Ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1'
 };
 
 /**
@@ -197,7 +192,7 @@ const RESOLVER_CACHE = new Map();
 const RESOLVER_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Resolves a HubCloud link (e.g., https://hubcloud.ist/drive/...)
+ * Resolves a HubCloud link (e.g., https://hubcloud.ist/drive/... or https://hubcloud.ist/video/...)
  * Returns { cloudDirect, directDownload, hdCloud, streamUrl }
  */
 async function resolveHubCloudLink(hubCloudUrl) {
@@ -213,7 +208,8 @@ async function resolveHubCloudLink(hubCloudUrl) {
     });
     if (!res.ok) return null;
     const html = await res.text();
-    const genMatch = html.match(/<a[^>]+href=["'](https?:\/\/gamerxyt\.com\/hubcloud\.php[^"']+)["']/i);
+    // Support gamerxyt.com, sportverse.cc, or any hubcloud.php generator link
+    const genMatch = html.match(/<a[^>]+href=["'](https?:\/\/[^"'\s<>]+\/hubcloud\.php[^"']+)["']/i);
     if (!genMatch) return null;
 
     const gamerUrl = genMatch[1];
@@ -223,8 +219,10 @@ async function resolveHubCloudLink(hubCloudUrl) {
     if (!gRes.ok) return null;
     const gHtml = await gRes.text();
 
-    const r2Match = gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*\.r2\.cloudflarestorage\.com\/hub\/[^"']+)["']/i);
-    const server10GbpsMatch = gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*hubcloud\.ist\/\?[^"']+)["']/i) ||
+    const r2Match = gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*\.r2\.cloudflarestorage\.com\/[^"']+)["']/i) ||
+      gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*\.r2\.dev\/[^"']+)["']/i);
+    const server10GbpsMatch = gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*gpdl[^"'\s<>]*\/\?[^"']+)["']/i) ||
+      gHtml.match(/href=["'](https?:\/\/[^"'\s<>]*hubcloud\.ist\/\?[^"']+)["']/i) ||
       gHtml.match(/href=["'](https?:\/\/pixeldrain\.dev\/u\/[^"']+)["']/i);
     const watchMatch = gHtml.match(/href=["'](https?:\/\/hbplay\.pages\.dev\/\?u=([^"'\s&]+)[^"']*)["']/i);
 
@@ -239,10 +237,10 @@ async function resolveHubCloudLink(hubCloudUrl) {
     const directDownload = server10GbpsMatch ? server10GbpsMatch[1] : cloudDirect;
 
     const result = {
-      cloudDirect: cloudDirect || hubCloudUrl,
-      directDownload: directDownload || hubCloudUrl,
+      cloudDirect: cloudDirect || directDownload || hubCloudUrl,
+      directDownload: directDownload || cloudDirect || hubCloudUrl,
       hdCloud: hubCloudUrl,
-      streamUrl: streamUrl || cloudDirect
+      streamUrl: streamUrl || cloudDirect || directDownload
     };
 
     RESOLVER_CACHE.set(hubCloudUrl, { data: result, expiresAt: Date.now() + RESOLVER_TTL_MS });
@@ -437,41 +435,38 @@ function parseMicroTvCards(html) {
   return cards;
 }
 
+let KNOWN_MICROTV_TOTAL_PAGES = 33;
+
 function parsePagination(html, requestedPage) {
-  const pageMatch = html.match(/<div class=["']pagination["']>([\s\S]*?)<\/div>/i);
   const curPage = parseInt(requestedPage, 10) || 1;
-
-  if (!pageMatch) {
-    return {
-      currentPage: curPage,
-      totalPages: 1,
-      hasNext: false,
-      hasPrev: false,
-      pages: [1]
-    };
-  }
-
-  const pagHtml = pageMatch[1];
   const pageNumbers = new Set();
-  const numMatches = [...pagHtml.matchAll(/href=["'][^"']*[?&]page=([0-9]+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+  pageNumbers.add(curPage);
 
-  numMatches.forEach(m => {
+  // Scan all page query occurrences across the HTML to find the maximum published page (e.g. 33+)
+  const pageMatches = [...html.matchAll(/[?&]page=([0-9]+)/gi)];
+  pageMatches.forEach(m => {
     const num = parseInt(m[1], 10);
-    if (!isNaN(num)) pageNumbers.add(num);
+    if (!isNaN(num) && num > 0 && num < 1000) {
+      pageNumbers.add(num);
+      if (num > KNOWN_MICROTV_TOTAL_PAGES) {
+        KNOWN_MICROTV_TOTAL_PAGES = num;
+      }
+    }
   });
 
-  const activeMatch = pagHtml.match(/<a[^>]+class=["'][^"']*active[^"']*["'][^>]*>([0-9]+)<\/a>/i);
-  const activePage = activeMatch ? parseInt(activeMatch[1], 10) : curPage;
-  pageNumbers.add(activePage);
+  const totalPages = Math.max(KNOWN_MICROTV_TOTAL_PAGES, curPage);
+  for (let i = 1; i <= Math.min(totalPages, 5); i++) {
+    pageNumbers.add(i);
+  }
+  pageNumbers.add(totalPages);
 
   const sortedPages = Array.from(pageNumbers).sort((a, b) => a - b);
-  const totalPages = sortedPages.length > 0 ? Math.max(...sortedPages) : activePage;
 
   return {
-    currentPage: activePage,
+    currentPage: curPage,
     totalPages,
-    hasNext: activePage < totalPages || pagHtml.includes('Next »'),
-    hasPrev: activePage > 1 || pagHtml.includes('« Previous'),
+    hasNext: curPage < totalPages || html.includes('Next »') || html.includes('Next'),
+    hasPrev: curPage > 1 || html.includes('« Previous') || html.includes('Previous'),
     pages: sortedPages
   };
 }
@@ -523,11 +518,12 @@ async function fetchMovies4uSearch(query) {
   }
 }
 
-async function fetchMovies4uHome() {
+async function fetchMovies4uHome(page = 1) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch('https://new1.movies4u.garden/', {
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const targetUrl = page > 1 ? `https://new1.movies4u.garden/page/${page}/` : 'https://new1.movies4u.garden/';
+    const res = await fetch(targetUrl, {
       headers: { ...COMMON_HEADERS, 'Referer': 'https://new1.movies4u.garden/' },
       signal: controller.signal
     });
@@ -596,7 +592,7 @@ async function fetchMovies4uHome() {
 async function fetchHdwallSearch(query) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 7000);
     const searchUrl = `https://hdwall.xyz/index.php?do=search&subaction=search&story=${encodeURIComponent(query)}`;
     const res = await fetch(searchUrl, {
       headers: { ...COMMON_HEADERS, 'Referer': 'https://hdwall.xyz/' },
@@ -613,11 +609,12 @@ async function fetchHdwallSearch(query) {
   }
 }
 
-async function fetchHdwallHome() {
+async function fetchHdwallHome(page = 1) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch('https://hdwall.xyz/', {
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const targetUrl = page > 1 ? `https://hdwall.xyz/page/${page}/` : 'https://hdwall.xyz/';
+    const res = await fetch(targetUrl, {
       headers: { ...COMMON_HEADERS, 'Referer': 'https://hdwall.xyz/' },
       signal: controller.signal
     });
@@ -696,71 +693,86 @@ app.get('/api/content', async (req, res) => {
     let allItems = [];
     let pagination = {
       currentPage: page,
-      totalPages: 10,
+      totalPages: 33,
       hasNext: true,
       hasPrev: page > 1,
-      pages: [1, 2, 3, 4, 5]
+      pages: [1, 2, 3, 4, 5, 33]
     };
 
-    // Parallel fetch from MicroTV, Movies4u, and HDWall
-    const microTvUrl = page > 1 ? `https://new.microtv.st/?page=${page}` : 'https://new.microtv.st/';
-    const [microRes, m4uItems, hdwallItems] = await Promise.allSettled([
-      fetch(microTvUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } }),
-      page === 1 ? fetchMovies4uHome() : Promise.resolve([]),
-      page === 1 ? fetchHdwallHome() : Promise.resolve([])
-    ]);
-
-    let microItems = [];
-    if (microRes.status === 'fulfilled' && microRes.value.ok) {
-      const html = await microRes.value.text();
-      microItems = parseMicroTvCards(html);
-      pagination = parsePagination(html, page);
-    }
-
-    // Fail-safe: If live MicroTV fetch was blocked (e.g. Vercel HTTP 403), use pre-cached seed database
-    if (microItems.length === 0 && MICROTV_SEED.length > 0) {
-      const perPage = 25;
-      const startIndex = (page - 1) * perPage;
-      microItems = MICROTV_SEED.slice(startIndex, startIndex + perPage);
-      if (microItems.length === 0 && page > 1) {
-        microItems = MICROTV_SEED.slice(0, perPage);
+    if (categoryFilter === 'mini_drama' || categoryFilter === 'mini drama' || categoryFilter === 'dramas') {
+      // Dynamic real-time scraping of new.microtv.st for Mini Drama
+      const microTvUrl = page > 1 ? `https://new.microtv.st/?page=${page}` : 'https://new.microtv.st/';
+      const microRes = await fetch(microTvUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } });
+      if (microRes.ok) {
+        const html = await microRes.text();
+        allItems = parseMicroTvCards(html);
+        pagination = parsePagination(html, page);
       }
-      pagination.totalPages = Math.max(pagination.totalPages || 1, Math.ceil(MICROTV_SEED.length / perPage));
-      pagination.hasNext = page < pagination.totalPages;
-      pagination.hasPrev = page > 1;
-    }
+    } else if (categoryFilter === 'movies') {
+      // Dynamic aggregation for Movies from Movies4u and HDWall
+      const [m4uItems, hdwallItems] = await Promise.allSettled([
+        fetchMovies4uHome(page),
+        fetchHdwallHome(page)
+      ]);
+      const m4uList = (m4uItems.status === 'fulfilled' ? m4uItems.value : []).filter(i => i.category === 'Movies');
+      const hdList = (hdwallItems.status === 'fulfilled' ? hdwallItems.value : []).filter(i => i.category === 'Movies');
+      const maxLen = Math.max(m4uList.length, hdList.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < m4uList.length) allItems.push(m4uList[i]);
+        if (i < hdList.length) allItems.push(hdList[i]);
+      }
+      pagination = {
+        currentPage: page,
+        totalPages: 30,
+        hasNext: page < 30,
+        hasPrev: page > 1,
+        pages: [1, 2, 3, 4, 5, 30]
+      };
+    } else if (categoryFilter === 'web_series' || categoryFilter === 'web series') {
+      // Dynamic aggregation for Web Series from Movies4u and HDWall
+      const [m4uItems, hdwallItems] = await Promise.allSettled([
+        fetchMovies4uHome(page),
+        fetchHdwallHome(page)
+      ]);
+      const m4uList = (m4uItems.status === 'fulfilled' ? m4uItems.value : []).filter(i => i.category === 'Web Series');
+      const hdList = (hdwallItems.status === 'fulfilled' ? hdwallItems.value : []).filter(i => i.category === 'Web Series');
+      const maxLen = Math.max(m4uList.length, hdList.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < m4uList.length) allItems.push(m4uList[i]);
+        if (i < hdList.length) allItems.push(hdList[i]);
+      }
+      pagination = {
+        currentPage: page,
+        totalPages: 30,
+        hasNext: page < 30,
+        hasPrev: page > 1,
+        pages: [1, 2, 3, 4, 5, 30]
+      };
+    } else {
+      // Default: Interleaved Aggregation across MicroTV, Movies4u & HDWall
+      const microTvUrl = page > 1 ? `https://new.microtv.st/?page=${page}` : 'https://new.microtv.st/';
+      const [microRes, m4uItems, hdwallItems] = await Promise.allSettled([
+        fetch(microTvUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } }),
+        fetchMovies4uHome(page),
+        fetchHdwallHome(page)
+      ]);
 
-    const m4uList = m4uItems.status === 'fulfilled' ? m4uItems.value : [];
-    const hdList = hdwallItems.status === 'fulfilled' ? hdwallItems.value : [];
+      let microItems = [];
+      if (microRes.status === 'fulfilled' && microRes.value.ok) {
+        const html = await microRes.value.text();
+        microItems = parseMicroTvCards(html);
+        pagination = parsePagination(html, page);
+      }
 
-    // Interleave releases across all three sources for rich variety on homepage
-    if (page === 1) {
+      const m4uList = m4uItems.status === 'fulfilled' ? m4uItems.value : [];
+      const hdList = hdwallItems.status === 'fulfilled' ? hdwallItems.value : [];
+
       const maxLen = Math.max(microItems.length, m4uList.length, hdList.length);
       for (let i = 0; i < maxLen; i++) {
         if (i < microItems.length) allItems.push(microItems[i]);
         if (i < m4uList.length) allItems.push(m4uList[i]);
         if (i < hdList.length) allItems.push(hdList[i]);
       }
-    } else {
-      allItems = microItems;
-    }
-
-    // Apply category filtering if specified
-    if (categoryFilter === 'mini_drama' || categoryFilter === 'mini drama' || categoryFilter === 'dramas') {
-      const dramas = allItems.filter(i => i.category === 'Mini Drama');
-      if (dramas.length > 0) {
-        allItems = dramas;
-      } else if (MICROTV_SEED.length > 0) {
-        const perPage = 25;
-        const startIndex = (page - 1) * perPage;
-        allItems = MICROTV_SEED.slice(startIndex, startIndex + perPage);
-      } else {
-        allItems = [];
-      }
-    } else if (categoryFilter === 'movies') {
-      allItems = allItems.filter(i => i.category === 'Movies');
-    } else if (categoryFilter === 'web_series' || categoryFilter === 'web series') {
-      allItems = allItems.filter(i => i.category === 'Web Series');
     }
 
     res.json({
@@ -823,12 +835,6 @@ app.get('/api/search', async (req, res) => {
     ]);
 
     let microResults = microRes.status === 'fulfilled' ? microRes.value : [];
-    if (microResults.length === 0 && MICROTV_SEED.length > 0) {
-      microResults = MICROTV_SEED.filter(m => 
-        m.title.toLowerCase().includes(query.toLowerCase()) || 
-        (m.slug && m.slug.toLowerCase().includes(query.toLowerCase()))
-      );
-    }
     const m4uResults = m4uRes.status === 'fulfilled' ? m4uRes.value : [];
     const hdwallResults = hdwallRes.status === 'fulfilled' ? hdwallRes.value : [];
 
@@ -1117,8 +1123,8 @@ app.get('/api/post', async (req, res) => {
           const mLinksRes = await fetch(m4uLinksUrl, { headers: { ...COMMON_HEADERS, 'Referer': postUrl } });
           if (mLinksRes.ok) {
             const mLinksHtml = await mLinksRes.text();
-            // Parse download blocks: <h4>QUALITY [SIZE]</h4> ... <a href="https://hubcloud.ist/drive/...">
-            const linkDivRegex = /<h4>([\s\S]*?)<\/h4>[\s\S]*?<a[^>]+href=["'](https?:\/\/hubcloud\.ist\/drive\/[^"']+)["']/gi;
+            // Parse download blocks: <h4|p>QUALITY [SIZE]</h4|p> ... <a href="https://hubcloud.ist/(drive|video)/...">
+            const linkDivRegex = /<(?:h[2-6]|p)[^>]*>([\s\S]*?)<\/(?:h[2-6]|p)>[\s\S]*?<a[^>]+href=["'](https?:\/\/[^"']*hubcloud\.ist\/(?:drive|video)\/[^"']+)["']/gi;
             const seenTiers = new Set();
             let divMatch;
             while ((divMatch = linkDivRegex.exec(mLinksHtml)) !== null) {
@@ -1143,6 +1149,18 @@ app.get('/api/post', async (req, res) => {
                   directDownloadUrl: `/api/cloud-direct-download?hubUrl=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent(title)}&quality=${q}&type=direct`,
                   hdCloudUrl: `/api/cloud-direct-download?hubUrl=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent(title)}&quality=${q}&type=hd_cloud`
                 });
+              }
+            }
+
+            // Pre-resolve first HubCloud link to get direct stream if not already obtained
+            if (!directStreamUrl && qualities.length > 0 && qualities[0].hubUrl) {
+              try {
+                const resolvedHub = await resolveHubCloudLink(qualities[0].hubUrl);
+                if (resolvedHub && resolvedHub.streamUrl) {
+                  directStreamUrl = resolvedHub.streamUrl;
+                }
+              } catch (e) {
+                console.warn('Movies4u hub pre-resolve warning:', e.message);
               }
             }
           }
@@ -1188,37 +1206,8 @@ app.get('/api/post', async (req, res) => {
       });
 
     } else {
-      // ---------------- MicroTV Detail Handler ----------------
+      // ---------------- MicroTV Detail Handler (Pure Live Scraping) ----------------
       const cleanSlug = slug.replace(/^\/+|\/+$/g, '');
-
-      // Check Pre-cached Database FIRST (Instant resolution with verified direct streams, embeds & downloads)
-      const seedMatch = MICROTV_SEED.find(m => 
-        m.slug === cleanSlug || 
-        m.id === `microtv_${cleanSlug}` || 
-        m.id === cleanSlug ||
-        (m.title && m.title.toLowerCase().includes(cleanSlug.replace(/[-_]/g, ' ').toLowerCase()))
-      );
-
-      if (seedMatch && (seedMatch.embedUrl || seedMatch.directStreamUrl)) {
-        return res.json({
-          success: true,
-          slug: seedMatch.slug || cleanSlug,
-          source: 'MicroTV',
-          category: 'Mini Drama',
-          title: seedMatch.title,
-          poster: seedMatch.poster || seedMatch.thumbnail,
-          embedUrl: seedMatch.embedUrl,
-          downloadPhpUrl: seedMatch.downloadPhpUrl || '',
-          directStreamUrl: seedMatch.directStreamUrl,
-          rawStreamUrl: seedMatch.rawStreamUrl,
-          unplayableMessage: null,
-          aspectRatio: 'vertical',
-          qualities: seedMatch.qualities || [],
-          originalViews: seedMatch.views || '3.2K views',
-          publishDate: 'Recent'
-        });
-      }
-
       const postUrl = `https://new.microtv.st/post/${encodeURIComponent(cleanSlug)}`;
       let response = await fetch(postUrl, {
         headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' }
@@ -1247,26 +1236,7 @@ app.get('/api/post', async (req, res) => {
       }
 
       if (!response.ok) {
-        if (seedMatch) {
-          return res.json({
-            success: true,
-            slug: seedMatch.slug || cleanSlug,
-            source: 'MicroTV',
-            category: 'Mini Drama',
-            title: seedMatch.title,
-            poster: seedMatch.poster || seedMatch.thumbnail,
-            embedUrl: seedMatch.embedUrl || `https://new.microtv.st/post/${encodeURIComponent(cleanSlug)}`,
-            downloadPhpUrl: seedMatch.downloadPhpUrl || '',
-            directStreamUrl: seedMatch.directStreamUrl,
-            rawStreamUrl: seedMatch.rawStreamUrl,
-            unplayableMessage: null,
-            aspectRatio: 'vertical',
-            qualities: seedMatch.qualities || [],
-            originalViews: seedMatch.views || '3.2K views',
-            publishDate: 'Recent'
-          });
-        }
-        return res.status(404).json({ success: false, error: `Series not found (HTTP ${response.status})` });
+        return res.status(404).json({ success: false, error: `Series not found on MicroTV (HTTP ${response.status})` });
       }
 
       const html = await response.text();
@@ -1400,7 +1370,7 @@ app.get('/api/cloud-direct-download', async (req, res) => {
 
     if (resolvedData) {
       if (type === 'direct') {
-        // Button 2: Direct Download (High Speed 10Gbps)
+        // High Speed 10Gbps Direct
         let directUrl = resolvedData.directDownload;
         if (directUrl && directUrl.includes('zdownload.php')) {
           try {
@@ -1422,13 +1392,13 @@ app.get('/api/cloud-direct-download', async (req, res) => {
           return res.redirect(directUrl);
         }
       } else if (type === 'hd_cloud') {
-        // Button 3: HD Cloud / HubCloud Mirror
+        // HD Cloud / HubCloud Mirror
         let hdUrl = resolvedData.hdCloud || hubUrl;
         if (hdUrl && hdUrl.startsWith('http')) {
           return res.redirect(hdUrl);
         }
       } else {
-        // Button 1: Cloud Direct (Fast Cloudflare R2 / Server)
+        // Cloud Direct (Fast Cloudflare R2 / Server)
         let cloudUrl = resolvedData.cloudDirect || resolvedData.streamUrl;
         if (cloudUrl && cloudUrl.startsWith('http')) {
           return res.redirect(cloudUrl);
@@ -1459,11 +1429,17 @@ app.get('/api/cloud-direct-download', async (req, res) => {
       }
     }
 
-    // Fallback direct file delivery
-    res.redirect(`/api/stream-download?filename=${encodeURIComponent(filename)}`);
+    // Prevention of False Downloads: Return clean error if no valid media source can be resolved
+    return res.status(404).json({
+      success: false,
+      error: `Direct media download link could not be resolved for ${quality}. The source file may be temporarily unavailable.`
+    });
   } catch (err) {
     console.error('Error resolving Cloud Direct download:', err.message);
-    res.redirect(`/api/stream-download?filename=${encodeURIComponent(filename)}`);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to resolve download link: ${err.message}`
+    });
   }
 });
 
@@ -1474,17 +1450,31 @@ app.get('/api/stream-download', async (req, res) => {
   const fileUrl = req.query.url;
   let filename = req.query.filename || 'ASI_OTT_Video.mkv';
 
+  // Prevention of False Downloads: Never serve dummy text as video!
   if (!fileUrl) {
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Content-Type', 'video/x-matroska');
-    return res.send(`ASI OTT Stream: ${filename}`);
+    return res.status(400).json({
+      success: false,
+      error: 'Missing direct media file URL for download.'
+    });
   }
 
   try {
     const { response: fileRes } = await fetchWithRefererRedirect(fileUrl);
 
     if (!fileRes.ok) {
-      return res.status(fileRes.status).send(`Failed to stream download: HTTP ${fileRes.status}`);
+      return res.status(fileRes.status).json({
+        success: false,
+        error: `Remote storage server returned HTTP ${fileRes.status}`
+      });
+    }
+
+    const contentType = (fileRes.headers.get('content-type') || '').toLowerCase();
+    // Strict Prevention of False Downloads: Reject HTML error pages disguised as video files
+    if (contentType.includes('text/html') || contentType.includes('application/json') || contentType.includes('text/plain')) {
+      return res.status(422).json({
+        success: false,
+        error: 'Remote source returned an HTML/error response instead of an actual video file.'
+      });
     }
 
     const remoteDisp = fileRes.headers.get('content-disposition');
