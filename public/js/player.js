@@ -8,6 +8,13 @@
  * 5. "Cloud Direct", "Direct Download", and "HD Cloud" buttons with direct file download initiation
  */
 
+// Backend API Base Configuration:
+// When running locally on localhost, use relative path.
+// When running on production domain (asiott.xo.je) or any remote host, connect directly to Vercel backend.
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? ''
+  : 'https://asiott.vercel.app';
+
 // State
 let seriesData = null;
 let audioContext = null;
@@ -168,7 +175,7 @@ async function loadEpisode() {
   }
 
   try {
-    const res = await fetch(`/api/post?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
+    const res = await fetch(`${API_BASE}/api/post?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: Failed to load content details`);
     }
@@ -238,9 +245,12 @@ async function loadEpisode() {
 
     // Video Playback Setup (Direct Stream or Designated Sandboxed Embed)
     if (seriesData.directStreamUrl) {
-      const streamEndpoint = seriesData.directStreamUrl.startsWith('http')
-        ? `/api/stream-video?url=${encodeURIComponent(seriesData.directStreamUrl)}`
-        : seriesData.directStreamUrl;
+      let streamEndpoint = seriesData.directStreamUrl;
+      if (seriesData.directStreamUrl.startsWith('http')) {
+        streamEndpoint = `${API_BASE}/api/stream-video?url=${encodeURIComponent(seriesData.directStreamUrl)}`;
+      } else if (seriesData.directStreamUrl.startsWith('/api/')) {
+        streamEndpoint = `${API_BASE}${seriesData.directStreamUrl}`;
+      }
 
       const isM3u8 = seriesData.directStreamUrl.includes('.m3u8') || streamEndpoint.includes('.m3u8');
 
@@ -683,7 +693,9 @@ async function initiateCloudDirect(cloudUrl, quality, size, encodedTitle) {
 
     // If cloudUrl is not already a direct endpoint, resolve via backend
     if (!downloadEndpoint || downloadEndpoint.includes('undefined')) {
-      downloadEndpoint = `/api/cloud-direct-download?title=${encodeURIComponent(title)}&quality=${quality}`;
+      downloadEndpoint = `${API_BASE}/api/cloud-direct-download?title=${encodeURIComponent(title)}&quality=${quality}`;
+    } else if (downloadEndpoint.startsWith('/api/')) {
+      downloadEndpoint = `${API_BASE}${downloadEndpoint}`;
     }
 
     dlStatusText.textContent = `Starting direct file download: ${targetFilename}...`;
@@ -726,8 +738,8 @@ function initiateDirectDownload(directUrl, quality, encodedTitle) {
   dlStatusBadge.textContent = 'Direct Link';
 
   const downloadUrl = directUrl && directUrl.startsWith('http') 
-    ? `/api/stream-download?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(filename)}`
-    : `/api/stream-download?filename=${encodeURIComponent(filename)}`;
+    ? `${API_BASE}/api/stream-download?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(filename)}`
+    : `${API_BASE}/api/stream-download?filename=${encodeURIComponent(filename)}`;
 
   const a = document.createElement('a');
   a.href = downloadUrl;
@@ -749,8 +761,8 @@ function initiateHdCloud(hdUrl, quality) {
   dlStatusBadge.textContent = 'HD Cloud';
 
   const downloadUrl = hdUrl && hdUrl.startsWith('http')
-    ? `/api/cloud-direct-download?hubUrl=${encodeURIComponent(hdUrl)}&quality=${quality}`
-    : `/api/stream-download?filename=HDCloud_${quality}.mkv`;
+    ? `${API_BASE}/api/cloud-direct-download?hubUrl=${encodeURIComponent(hdUrl)}&quality=${quality}`
+    : `${API_BASE}/api/stream-download?filename=HDCloud_${quality}.mkv`;
 
   const a = document.createElement('a');
   a.href = downloadUrl;
@@ -767,7 +779,7 @@ function initiateHdCloud(hdUrl, quality) {
  */
 async function trackUniqueView(id) {
   try {
-    await fetch('/api/views/track', {
+    await fetch(`${API_BASE}/api/views/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id })

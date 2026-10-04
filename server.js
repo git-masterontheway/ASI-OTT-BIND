@@ -14,26 +14,38 @@ app.enable('trust proxy');
 // Production CORS Configuration
 const allowedOrigins = [
   'https://asiott.xo.je',
+  'http://asiott.xo.je',
   'https://www.asiott.xo.je',
+  'http://www.asiott.xo.je',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002'
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: function(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+    if (!origin || allowedOrigins.includes(origin) || origin.includes('asiott.xo.je') || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
-      callback(null, true); // Permissive fallback for seamless client aggregation
+      callback(null, true); // Permissive fallback for multi-source client aggregation
     }
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Explicit route for /watch
+app.get('/watch', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'watch.html'));
+});
 
 // Path to independent IP view counter database
 // On Vercel (read-only filesystem except /tmp), use /tmp if in Vercel environment

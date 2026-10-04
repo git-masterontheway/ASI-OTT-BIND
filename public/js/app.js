@@ -1,11 +1,11 @@
 /**
  * ASI OTT - Multi-Source Content Aggregation Frontend
- * Handles:
- * - Aggregated homepage loading from MicroTV, Movies4u & HDWall
- * - Multi-source parallel search with unified card display
- * - Category tabs ("All Content", "Dramas", "Movies", "Web Series")
- * - Dedicated sub-header search execution
+ * Backend API Base Configuration:
+ * Directly connects to Vercel backend when hosted on custom domain (asiott.xo.je).
  */
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? ''
+  : 'https://asiott.vercel.app';
 
 // State
 let allItems = [];
@@ -82,9 +82,9 @@ async function loadContentPage(page = 1, isInitial = false) {
 
     if (currentSearchQuery) {
       params.set('q', currentSearchQuery);
-      endpoint = `/api/search?${params.toString()}`;
+      endpoint = `${API_BASE}/api/search?${params.toString()}`;
     } else {
-      endpoint = `/api/content?${params.toString()}`;
+      endpoint = `${API_BASE}/api/content?${params.toString()}`;
     }
 
     const res = await fetch(endpoint);
@@ -177,7 +177,7 @@ function setupHeroSpotlight(item) {
   if (heroCategory) heroCategory.textContent = catLabel;
   if (heroSource) heroSource.style.display = 'none'; // Source masked
 
-  const watchUrl = `/watch?id=${encodeURIComponent(item.id || item.slug)}&source=${encodeURIComponent(item.source || 'MicroTV')}`;
+  const watchUrl = `/watch.html?id=${encodeURIComponent(item.id || item.slug)}&source=${encodeURIComponent(item.source || 'MicroTV')}`;
   heroWatchBtn.href = watchUrl;
   heroQuickBtn.onclick = () => {
     window.location.href = watchUrl;
@@ -200,7 +200,7 @@ function renderSeriesGrid(items) {
   }
 
   seriesGrid.innerHTML = items.map(item => {
-    const watchUrl = `/watch?id=${encodeURIComponent(item.id || item.slug)}&source=${encodeURIComponent(item.source || 'MicroTV')}`;
+    const watchUrl = `/watch.html?id=${encodeURIComponent(item.id || item.slug)}&source=${encodeURIComponent(item.source || 'MicroTV')}`;
     const safeTitle = (item.title || '').replace(/"/g, '&quot;');
     const thumbUrl = item.thumbnail || 'https://new.microtv.st/assets/images/placeholder.jpg';
     const qualityTag = item.quality || 'HD Stream';
