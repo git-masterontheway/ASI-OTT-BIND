@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Watch Online - ASI OTT</title>
+  <meta name="description" content="Watch high-definition movies, web series, and dramas online with our integrated horizontal video player, audio booster, and instant direct cloud downloads.">
+
+  <!-- Production Canonical & OpenGraph Meta (https://asiott.xo.je/) -->
+  <link rel="canonical" href="https://asiott.xo.je/watch">
+  <meta property="og:site_name" content="ASI OTT">
+  <meta property="og:title" content="Watch Online - ASI OTT">
+  <meta property="og:description" content="Watch high-definition movies and web series online with horizontal player controls and direct cloud downloads.">
+  <meta property="og:url" content="https://asiott.xo.je/watch">
+  <meta property="og:type" content="video.movie">
+  <meta property="og:image" content="https://asiott.xo.je/favicon.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Watch Online - ASI OTT">
+  <meta name="twitter:description" content="High-definition video playback with direct cloud downloads.">
+  <meta name="twitter:image" content="https://asiott.xo.je/favicon.svg">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="/css/style.css">
+
+  <!-- HLS.js for HLS (.m3u8) Playback -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="brand-wrapper">
+        <a href="/" class="brand-logo">
+          <i class="fa-solid fa-play-circle brand-highlight"></i>
+          <span>ASI<span class="brand-highlight">OTT</span></span>
+        </a>
+      </div>
+
+      <!-- Player Aspect Ratio Controls -->
+      <div class="player-mode-group" id="player-controls-top-group">
+        <button id="toggle-aspect-btn" class="mode-btn" title="Toggle Aspect Ratio">
+          <i class="fa-solid fa-desktop"></i> <span id="aspect-label">Horizontal 16:9</span>
+        </button>
+        <button id="toggle-player-mode-btn" class="mode-btn" title="Toggle Native / Source Player">
+          <i class="fa-solid fa-sliders"></i> <span id="player-mode-label">Direct Stream</span>
+        </button>
+      </div>
+
+      <!-- Main Navigation with Telegram Icon Only -->
+      <nav class="nav-actions">
+        <a href="/" class="nav-link" title="Home"><i class="fa-solid fa-house"></i> <span>Home</span></a>
+        <a href="/#series-section" class="nav-link" title="Trending"><i class="fa-solid fa-fire"></i> <span>Trending</span></a>
+        <a href="https://t.me/ASI_OTT_discussion" target="_blank" rel="noopener noreferrer" class="nav-link nav-telegram-icon" title="Telegram Discussion">
+          <i class="fa-brands fa-telegram"></i>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Watch Container -->
+  <div class="watch-container">
+
+    <!-- Top Breadcrumb & Status Bar -->
+    <div class="watch-topbar">
+      <a href="/" class="back-link">
+        <i class="fa-solid fa-chevron-left"></i> Browse All Content
+      </a>
+      <div class="meta-pills-top">
+        <span class="category-badge badge-movies" id="topbar-category">Movies</span>
+        <span class="badge badge-featured" id="topbar-status-badge"><i class="fa-solid fa-circle-play"></i> Watch Online</span>
+      </div>
+    </div>
+
+    <!-- 1. INTEGRATED HORIZONTAL VIDEO PLAYER (Watch Online) -->
+    <div class="player-stage aspect-theater" id="player-stage">
+      <div class="player-wrapper" id="player-wrapper">
+
+        <!-- Native HTML5 Custom Video Player (Direct On-Site Playback) -->
+        <video 
+          id="custom-video" 
+          playsinline 
+          webkit-playsinline 
+          preload="auto"
+          poster="https://new.microtv.st/assets/images/placeholder.jpg"
+        >
+          Your browser does not support HTML5 video playback.
+        </video>
+
+        <!-- Embedded Iframe Player (Direct On-Site, Sandboxed with form & script support) -->
+        <iframe 
+          id="embed-iframe" 
+          style="display: none;" 
+          allowfullscreen 
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+
+        <!-- Custom Player Overlay Controls -->
+        <div class="player-controls-overlay" id="player-controls-overlay">
+          
+          <!-- Top Overlay Bar -->
+          <div class="player-top-controls">
+            <span class="player-title-display" id="overlay-title">Loading title...</span>
+            <div class="top-actions">
+              <button class="ctrl-btn" id="ctrl-share-btn" title="Share Watch Link">
+                <i class="fa-solid fa-share-nodes"></i>
+              </button>
+              <button class="ctrl-btn" id="ctrl-pip-btn" title="Picture in Picture">
+                <i class="fa-solid fa-clone"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Center Big Play/Pause Button Overlay -->
+          <div class="center-play-trigger" id="center-play-btn" title="Play / Pause Video">
+            <i class="fa-solid fa-play" id="center-play-icon" style="margin-left: 4px;"></i>
+          </div>
+
+          <!-- Bottom Overlay Bar with Navigation Controls & Timeline -->
+          <div class="player-bottom-controls">
+            <!-- Seekbar / Progress Container -->
+            <div class="progress-container" id="progress-container">
+              <div class="progress-bar" id="progress-bar">
+                <div class="progress-thumb"></div>
+              </div>
+            </div>
+
+            <!-- Controls Row -->
+            <div class="controls-row">
+              <div class="controls-left">
+                <!-- Play / Pause -->
+                <button class="ctrl-btn" id="ctrl-play-btn" title="Play/Pause (Space)">
+                  <i class="fa-solid fa-play" id="ctrl-play-icon"></i>
+                </button>
+
+                <!-- Rewind 10s -->
+                <button class="ctrl-btn" id="ctrl-rewind-btn" title="Rewind 10s">
+                  <i class="fa-solid fa-rotate-left"></i>
+                </button>
+
+                <!-- Forward 10s -->
+                <button class="ctrl-btn" id="ctrl-forward-btn" title="Forward 10s">
+                  <i class="fa-solid fa-rotate-right"></i>
+                </button>
+
+                <!-- Timeline Duration (Proper Hours:Minutes:Seconds Structure) -->
+                <div class="time-display" id="time-display">00:00:00 / 00:00:00</div>
+              </div>
+
+              <div class="controls-right">
+                <!-- Volume / Mute -->
+                <button class="ctrl-btn" id="ctrl-mute-btn" title="Mute/Unmute">
+                  <i class="fa-solid fa-volume-high" id="ctrl-volume-icon"></i>
+                </button>
+
+                <!-- In-Player Integrated Settings Gear (Speed, Brightness, Audio Booster) -->
+                <button class="ctrl-btn" id="ctrl-settings-btn" title="Player Settings (Speed, Brightness, Audio Boost)">
+                  <i class="fa-solid fa-gear"></i>
+                </button>
+
+                <!-- Fullscreen -->
+                <button class="ctrl-btn" id="ctrl-fullscreen-btn" title="Toggle Fullscreen">
+                  <i class="fa-solid fa-expand" id="ctrl-fullscreen-icon"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- In-Player Settings Floating Popover -->
+          <div class="player-settings-popover" id="player-settings-popover">
+            <div class="settings-pop-header">
+              <span><i class="fa-solid fa-sliders"></i> Player Settings</span>
+              <button class="settings-close-btn" id="settings-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Playback Speed -->
+            <div class="settings-group">
+              <div class="settings-label-row">
+                <span><i class="fa-solid fa-gauge-high"></i> Playback Speed</span>
+                <span class="control-val-badge" id="val-speed">1.0x</span>
+              </div>
+              <div class="speed-buttons">
+                <button class="speed-btn" data-speed="0.5">0.5x</button>
+                <button class="speed-btn" data-speed="0.75">0.75x</button>
+                <button class="speed-btn active" data-speed="1.0">1.0x</button>
+                <button class="speed-btn" data-speed="1.25">1.25x</button>
+                <button class="speed-btn" data-speed="1.5">1.5x</button>
+                <button class="speed-btn" data-speed="2.0">2.0x</button>
+              </div>
+            </div>
+
+            <!-- Brightness Adjustment -->
+            <div class="settings-group">
+              <div class="settings-label-row">
+                <span><i class="fa-solid fa-sun"></i> Brightness</span>
+                <span class="control-val-badge" id="val-brightness">100%</span>
+              </div>
+              <input 
+                type="range" 
+                id="brightness-slider" 
+                class="slider-styled" 
+                min="40" 
+                max="200" 
+                value="100" 
+                step="5"
+              >
+            </div>
+
+            <!-- Audio Booster up to 300% -->
+            <div class="settings-group">
+              <div class="settings-label-row">
+                <span><i class="fa-solid fa-volume-high"></i> Audio Booster</span>
+                <span class="control-val-badge" id="val-audio-boost">100%</span>
+              </div>
+              <input 
+                type="range" 
+                id="audio-boost-slider" 
+                class="slider-styled" 
+                min="0" 
+                max="300" 
+                value="100" 
+                step="5"
+              >
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 2. CLEAN CONTENT DETAIL LAYOUT (Only Primary Thumbnail & Title, No Junk) -->
+    <div class="content-clean-detail-card" id="detail-card">
+      <div class="detail-primary-layout" id="detail-primary-layout">
+        <!-- Primary Thumbnail (Hidden when video stream is unplayable) -->
+        <div class="detail-poster-container" id="detail-poster-container">
+          <img 
+            id="detail-poster" 
+            src="https://new.microtv.st/assets/images/placeholder.jpg" 
+            alt="Title Thumbnail" 
+            class="detail-primary-poster"
+            onerror="this.onerror=null; this.src='https://new.microtv.st/assets/images/placeholder.jpg'"
+          >
+        </div>
+
+        <!-- Clean Title & Metadata -->
+        <div class="detail-header-info">
+          <div class="meta-badges-row">
+            <span class="category-badge badge-movies" id="detail-category-badge">Movies</span>
+            <span class="badge badge-views" id="detail-views"><i class="fa-solid fa-eye"></i> 2.8k views</span>
+          </div>
+
+          <h1 class="clean-primary-title" id="series-full-title">
+            Loading Title...
+          </h1>
+
+          <div class="detail-action-buttons">
+            <button id="main-share-btn" class="btn btn-secondary">
+              <i class="fa-solid fa-share-nodes"></i> Share Title
+            </button>
+            <button id="scroll-to-downloads-btn" class="btn btn-primary">
+              <i class="fa-solid fa-download"></i> Go to Downloads
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. STRUCTURED DOWNLOAD SECTION BY QUALITY (480p, 720p, 1080p) -->
+    <div class="download-section-container" id="download-section">
+      <div class="download-section-header">
+        <div>
+          <h2 class="section-title">
+            <i class="fa-solid fa-cloud-arrow-down" style="color: var(--accent-cyan);"></i>
+            Quality Download Center
+          </h2>
+          <p class="download-section-subtitle">
+            Structured downloads available in 480p, 720p, and 1080p quality tiers. Click "Cloud Direct" to initiate file download immediately with zero redirects.
+          </p>
+        </div>
+        <span class="streamlined-badge">
+          <i class="fa-solid fa-circle-check"></i> Verified Direct Links
+        </span>
+      </div>
+
+      <!-- Active Download Progress / Status Banner -->
+      <div class="dl-status-banner" id="dl-status-banner">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="dl-spinner"></div>
+          <span id="dl-status-text">Initiating Cloud Direct download...</span>
+        </div>
+        <span id="dl-status-badge" style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 600;">Processing</span>
+      </div>
+
+      <!-- Structured Quality Cards Grid -->
+      <div class="quality-download-grid" id="quality-download-grid">
+        <!-- Rendered dynamically by player.js -->
+        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
+          <i class="fa-solid fa-circle-notch fa-spin"></i> Loading download options...
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Consistent Site Footer with Dynamic Year & Developer Credit -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-top-row">
+        <div class="footer-brand">
+          <div class="brand-logo">
+            <i class="fa-solid fa-play-circle brand-highlight"></i>
+            <span>ASI<span class="brand-highlight">OTT</span></span>
+          </div>
+          <p class="footer-desc">
+            ASI OTT is an advanced multi-source content aggregation platform delivering high-definition movies, web series, and vertical short dramas with horizontal video playback and seamless direct cloud downloads.
+          </p>
+        </div>
+
+        <div class="footer-nav-links">
+          <a href="/" class="footer-link"><i class="fa-solid fa-house"></i> Home</a>
+          <a href="/#series-section" class="footer-link"><i class="fa-solid fa-fire"></i> Trending</a>
+          <a href="https://t.me/ASI_OTT_discussion" target="_blank" rel="noopener noreferrer" class="footer-link footer-telegram">
+            <i class="fa-brands fa-telegram"></i> Telegram Discussion
+          </a>
+        </div>
+      </div>
+
+      <div class="footer-divider"></div>
+
+      <div class="footer-bottom-row">
+        <div class="footer-copyright">
+          Copyright <span id="current-year"></span> ASI OTT. Built by ASI Developer Team.
+        </div>
+        <div class="footer-developer">
+          <i class="fa-solid fa-shield-halved"></i> Internal Testing Environment • Authorized Platform
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Video Player Application Logic -->
+  <script src="/js/player.js"></script>
+</body>
+</html>

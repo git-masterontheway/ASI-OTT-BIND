@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ASI OTT - Multi-Source Content Aggregator & Streaming Platform</title>
+  <meta name="description" content="Stream and download movies, web series, and vertical short dramas aggregated from top high-speed sources with horizontal video player and instant cloud direct downloads.">
+
+  <!-- Production Canonical & OpenGraph Meta (https://asiott.xo.je/) -->
+  <link rel="canonical" href="https://asiott.xo.je/">
+  <meta property="og:site_name" content="ASI OTT">
+  <meta property="og:title" content="ASI OTT - Stream & Download Movies, Web Series & Dramas">
+  <meta property="og:description" content="Stream and download high-definition movies, web series, and vertical dramas with zero redirects and instant direct downloads.">
+  <meta property="og:url" content="https://asiott.xo.je/">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://asiott.xo.je/favicon.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="ASI OTT - Stream & Download">
+  <meta name="twitter:description" content="Stream and download high-definition movies and series with instant cloud direct downloads.">
+  <meta name="twitter:image" content="https://asiott.xo.je/favicon.svg">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- 1. Top Navigation Bar (Redesigned Creative Header) -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="brand-wrapper">
+        <a href="/" class="brand-logo" id="home-link">
+          <i class="fa-solid fa-play-circle brand-highlight"></i>
+          <span>ASI<span class="brand-highlight">OTT</span></span>
+        </a>
+      </div>
+
+      <!-- Main Navigation: Home, Trending, and Telegram Icon Only -->
+      <nav class="nav-actions">
+        <a href="/" class="nav-link active" title="Home"><i class="fa-solid fa-house"></i> <span>Home</span></a>
+        <a href="#series-section" class="nav-link" title="Trending"><i class="fa-solid fa-fire"></i> <span>Trending</span></a>
+        <a href="https://t.me/ASI_OTT_discussion" target="_blank" rel="noopener noreferrer" class="nav-link nav-telegram-icon" title="Telegram Discussion">
+          <i class="fa-brands fa-telegram"></i>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- 2. Dedicated Sub-Header for Search & Category Menu -->
+  <section class="sub-header-bar">
+    <div class="sub-header-container">
+      <!-- Search Input Field & Dedicated Button -->
+      <form class="search-form-wrapper" id="search-form" onsubmit="return false;">
+        <div class="search-input-group">
+          <i class="fa-solid fa-magnifying-glass search-input-icon"></i>
+          <input 
+            type="text" 
+            id="search-input" 
+            class="search-input-field" 
+            placeholder="Search all content (e.g. Drishyam, Toxic, Dramas)..." 
+            autocomplete="off"
+          >
+          <button type="button" id="search-clear-btn" class="search-clear-btn" title="Clear search" style="display: none;">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <button type="submit" id="search-submit-btn" class="btn btn-search-submit" title="Execute Search">
+          <i class="fa-solid fa-magnifying-glass"></i> <span>Search</span>
+        </button>
+      </form>
+
+      <!-- Naturally Swipeable Category Menu (No Slider Toggle Needed) -->
+      <div class="category-tabs-wrapper" id="category-tabs">
+        <button class="cat-tab active" data-category="all">
+          <i class="fa-solid fa-border-all"></i> All Content
+        </button>
+        <button class="cat-tab" data-category="mini_drama">
+          <i class="fa-solid fa-mobile-screen"></i> Mini Drama
+        </button>
+        <button class="cat-tab" data-category="movies">
+          <i class="fa-solid fa-film"></i> Movies
+        </button>
+        <button class="cat-tab" data-category="web_series">
+          <i class="fa-solid fa-tv"></i> Web Series
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content Area -->
+  <main class="main-wrapper">
+
+    <!-- Hero Spotlight Section -->
+    <section class="hero-spotlight" id="hero-spotlight" style="display: none;">
+      <div class="hero-backdrop" id="hero-backdrop"></div>
+      <div class="hero-gradient"></div>
+      <div class="hero-content">
+        <div class="hero-badge-group">
+          <span class="badge badge-featured"><i class="fa-solid fa-star"></i> Featured Release</span>
+          <span class="badge badge-source" id="hero-source">MicroTV</span>
+          <span class="badge badge-tag" id="hero-category">Dramas</span>
+          <span class="badge badge-views" id="hero-views"><i class="fa-solid fa-eye"></i> 2.9k views</span>
+        </div>
+        <h1 class="hero-title" id="hero-title">Loading Featured Content...</h1>
+        <p class="hero-desc">
+          Experience high-performance playback directly on our site, with comprehensive multi-quality downloads (480p, 720p, 1080p) and instant Cloud Direct file delivery without external redirects.
+        </p>
+        <div class="hero-actions">
+          <a href="#" id="hero-watch-btn" class="btn btn-primary">
+            <i class="fa-solid fa-play"></i> Watch Online Now
+          </a>
+          <button id="hero-quick-btn" class="btn btn-secondary">
+            <i class="fa-solid fa-circle-info"></i> View Details & Downloads
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Content Section Header & Filter Controls -->
+    <section class="section-header" id="series-section">
+      <div>
+        <h2 class="section-title" id="section-heading">
+          <i class="fa-solid fa-bolt"></i> Aggregated Latest Releases
+        </h2>
+        <span class="items-counter" id="items-counter">Loading content from all sources...</span>
+      </div>
+
+      <!-- Quick Sorting Filter Chips -->
+      <div class="filter-chips">
+        <button class="chip active" data-filter="all">All Releases</button>
+        <button class="chip" data-filter="popular">Most Viewed</button>
+        <button class="chip" data-filter="recent">Recent Releases</button>
+      </div>
+    </section>
+
+    <!-- Unified Multi-Source Card Grid -->
+    <div class="series-grid" id="series-grid">
+      <div style="grid-column: 1 / -1; text-align: center; padding: 4rem 1rem;">
+        <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 2.5rem; color: var(--accent-primary); margin-bottom: 1rem;"></i>
+        <p style="color: var(--text-muted); font-size: 1.05rem;">Aggregating content from MicroTV, Movies4u & HDWall...</p>
+      </div>
+    </div>
+
+    <!-- Pagination Container -->
+    <div class="pagination-wrapper" id="pagination-wrapper"></div>
+
+  </main>
+
+  <!-- Consistent Site Footer with Dynamic Year & Developer Credit -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-top-row">
+        <div class="footer-brand">
+          <div class="brand-logo">
+            <i class="fa-solid fa-play-circle brand-highlight"></i>
+            <span>ASI<span class="brand-highlight">OTT</span></span>
+          </div>
+          <p class="footer-desc">
+            ASI OTT is an advanced multi-source content aggregation platform delivering high-definition movies, web series, and vertical short dramas with horizontal video playback and seamless direct cloud downloads.
+          </p>
+        </div>
+
+        <div class="footer-nav-links">
+          <a href="/" class="footer-link"><i class="fa-solid fa-house"></i> Home</a>
+          <a href="#series-section" class="footer-link"><i class="fa-solid fa-fire"></i> Trending</a>
+          <a href="https://t.me/ASI_OTT_discussion" target="_blank" rel="noopener noreferrer" class="footer-link footer-telegram">
+            <i class="fa-brands fa-telegram"></i> Telegram Discussion
+          </a>
+        </div>
+      </div>
+
+      <div class="footer-divider"></div>
+
+      <div class="footer-bottom-row">
+        <div class="footer-copyright">
+          Copyright <span id="current-year"></span> ASI OTT. Built by ASI Developer Team.
+        </div>
+        <div class="footer-developer">
+          <i class="fa-solid fa-shield-halved"></i> Internal Testing Environment • Authorized Platform
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Client Application JavaScript -->
+  <script src="/js/app.js"></script>
+</body>
+</html>
