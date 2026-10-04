@@ -8,12 +8,44 @@
  * 5. "Cloud Direct", "Direct Download", and "HD Cloud" buttons with direct file download initiation
  */
 
-// Backend API Base Configuration:
-// When running locally on localhost, use relative path.
-// When running on production domain (asiott.xo.je) or any remote host, connect directly to Vercel backend.
+const VERCEL_BACKEND = 'https://asiott.vercel.app';
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? ''
-  : 'https://asiott.vercel.app';
+  ? (window.location.port === '3000' ? 'http://localhost:3001' : '')
+  : VERCEL_BACKEND;
+
+/**
+ * Resilient Post Fetch Helper
+ */
+async function fetchPostData(id, source) {
+  const query = `/api/post?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`;
+  const primaryUrl = `${API_BASE}${query}`;
+
+  try {
+    const res = await fetch(primaryUrl);
+    if (res.ok) {
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text);
+        if (json && json.success) return json;
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.warn('Primary post fetch failed, falling back to Vercel...', err);
+  }
+
+  // Automatic fallback to Vercel
+  if (!primaryUrl.startsWith(VERCEL_BACKEND)) {
+    const fallbackRes = await fetch(`${VERCEL_BACKEND}${query}`);
+    if (fallbackRes.ok) {
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData && fallbackData.success) {
+        return fallbackData;
+      }
+    }
+  }
+
+  throw new Error('Failed to load content details from aggregation server');
+}
 
 // State
 let seriesData = null;
@@ -175,15 +207,7 @@ async function loadEpisode() {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/post?id=${encodeURIComponent(id)}&source=${encodeURIComponent(source)}`);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: Failed to load content details`);
-    }
-
-    seriesData = await res.json();
-    if (!seriesData.success) {
-      throw new Error(seriesData.error || 'Failed to parse content data');
-    }
+    seriesData = await fetchPostData(id, source);
 
     // Set page title
     document.title = `Watch ${seriesData.title} Online - ASI OTT`;

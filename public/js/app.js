@@ -3,9 +3,46 @@
  * Backend API Base Configuration:
  * Directly connects to Vercel backend when hosted on custom domain (asiott.xo.je).
  */
+const VERCEL_BACKEND = 'https://asiott.vercel.app';
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? ''
-  : 'https://asiott.vercel.app';
+  ? (window.location.port === '3000' ? 'http://localhost:3001' : '')
+  : VERCEL_BACKEND;
+
+/**
+ * Resilient API Fetch Helper:
+ * Attempts primary API, validates JSON, and falls back to Vercel production backend automatically if needed.
+ */
+async function fetchApi(pathWithQuery) {
+  const primaryUrl = `${API_BASE}${pathWithQuery}`;
+  try {
+    const res = await fetch(primaryUrl);
+    if (res.ok) {
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text);
+        if (json && json.success && Array.isArray(json.items)) {
+          return json;
+        }
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.warn('Primary API fetch failed, attempting Vercel production fallback...', err);
+  }
+
+  // Automatic fallback to Vercel production backend
+  if (!primaryUrl.startsWith(VERCEL_BACKEND)) {
+    console.log('Falling back to Vercel production backend:', VERCEL_BACKEND + pathWithQuery);
+    const fallbackRes = await fetch(`${VERCEL_BACKEND}${pathWithQuery}`);
+    if (fallbackRes.ok) {
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData && fallbackData.success) {
+        return fallbackData;
+      }
+    }
+  }
+
+  throw new Error('Aggregation server currently unavailable. Please click retry.');
+}
 
 // State
 let allItems = [];
@@ -75,24 +112,19 @@ async function loadContentPage(page = 1, isInitial = false) {
   itemsCounter.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Loading sources...`;
 
   try {
-    let endpoint = '';
     const params = new URLSearchParams();
     if (page > 1) params.set('page', page);
     if (currentCategory && currentCategory !== 'all') params.set('category', currentCategory);
 
+    let path = '';
     if (currentSearchQuery) {
       params.set('q', currentSearchQuery);
-      endpoint = `${API_BASE}/api/search?${params.toString()}`;
+      path = `/api/search?${params.toString()}`;
     } else {
-      endpoint = `${API_BASE}/api/content?${params.toString()}`;
+      path = `/api/content?${params.toString()}`;
     }
 
-    const res = await fetch(endpoint);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: Failed to reach aggregation server`);
-    }
-
-    const data = await res.json();
+    const data = await fetchApi(path);
     if (!data.success || !Array.isArray(data.items)) {
       throw new Error(data.error || 'Invalid data received from server');
     }
