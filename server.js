@@ -52,6 +52,21 @@ app.get('/watch', (req, res) => {
 const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'asi_data') : path.join(__dirname, 'data');
 const VIEWS_FILE = path.join(DATA_DIR, 'views.json');
 
+// Pre-cached Mini Drama Seed Database (Ensures 100% availability on Vercel where new.microtv.st blocks datacenter IPs)
+let MICROTV_SEED = [];
+try {
+  let seedPath = path.join(__dirname, 'data', 'microtv_seed.json');
+  if (!fs.existsSync(seedPath)) {
+    seedPath = path.join(process.cwd(), 'data', 'microtv_seed.json');
+  }
+  if (fs.existsSync(seedPath)) {
+    MICROTV_SEED = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+    console.log(`Loaded ${MICROTV_SEED.length} pre-cached mini dramas for fail-safe aggregation.`);
+  }
+} catch (e) {
+  console.warn('Could not load microtv_seed.json:', e.message);
+}
+
 // Ensure data folder exists
 if (!fs.existsSync(DATA_DIR)) {
   try {
@@ -702,6 +717,19 @@ app.get('/api/content', async (req, res) => {
       pagination = parsePagination(html, page);
     }
 
+    // Fail-safe: If live MicroTV fetch was blocked (e.g. Vercel HTTP 403), use pre-cached seed database
+    if (microItems.length === 0 && MICROTV_SEED.length > 0) {
+      const perPage = 25;
+      const startIndex = (page - 1) * perPage;
+      microItems = MICROTV_SEED.slice(startIndex, startIndex + perPage);
+      if (microItems.length === 0 && page > 1) {
+        microItems = MICROTV_SEED.slice(0, perPage);
+      }
+      pagination.totalPages = Math.max(pagination.totalPages || 1, Math.ceil(MICROTV_SEED.length / perPage));
+      pagination.hasNext = page < pagination.totalPages;
+      pagination.hasPrev = page > 1;
+    }
+
     const m4uList = m4uItems.status === 'fulfilled' ? m4uItems.value : [];
     const hdList = hdwallItems.status === 'fulfilled' ? hdwallItems.value : [];
 
@@ -719,7 +747,16 @@ app.get('/api/content', async (req, res) => {
 
     // Apply category filtering if specified
     if (categoryFilter === 'mini_drama' || categoryFilter === 'mini drama' || categoryFilter === 'dramas') {
-      allItems = allItems.filter(i => i.category === 'Mini Drama');
+      const dramas = allItems.filter(i => i.category === 'Mini Drama');
+      if (dramas.length > 0) {
+        allItems = dramas;
+      } else if (MICROTV_SEED.length > 0) {
+        const perPage = 25;
+        const startIndex = (page - 1) * perPage;
+        allItems = MICROTV_SEED.slice(startIndex, startIndex + perPage);
+      } else {
+        allItems = [];
+      }
     } else if (categoryFilter === 'movies') {
       allItems = allItems.filter(i => i.category === 'Movies');
     } else if (categoryFilter === 'web_series' || categoryFilter === 'web series') {
@@ -785,7 +822,13 @@ app.get('/api/search', async (req, res) => {
       hdwallPromise
     ]);
 
-    const microResults = microRes.status === 'fulfilled' ? microRes.value : [];
+    let microResults = microRes.status === 'fulfilled' ? microRes.value : [];
+    if (microResults.length === 0 && MICROTV_SEED.length > 0) {
+      microResults = MICROTV_SEED.filter(m => 
+        m.title.toLowerCase().includes(query.toLowerCase()) || 
+        (m.slug && m.slug.toLowerCase().includes(query.toLowerCase()))
+      );
+    }
     const m4uResults = m4uRes.status === 'fulfilled' ? m4uRes.value : [];
     const hdwallResults = hdwallRes.status === 'fulfilled' ? hdwallRes.value : [];
 
@@ -1147,6 +1190,35 @@ app.get('/api/post', async (req, res) => {
     } else {
       // ---------------- MicroTV Detail Handler ----------------
       const cleanSlug = slug.replace(/^\/+|\/+$/g, '');
+
+      // Check Pre-cached Database FIRST (Instant resolution with verified direct streams, embeds & downloads)
+      const seedMatch = MICROTV_SEED.find(m => 
+        m.slug === cleanSlug || 
+        m.id === `microtv_${cleanSlug}` || 
+        m.id === cleanSlug ||
+        (m.title && m.title.toLowerCase().includes(cleanSlug.replace(/[-_]/g, ' ').toLowerCase()))
+      );
+
+      if (seedMatch && (seedMatch.embedUrl || seedMatch.directStreamUrl)) {
+        return res.json({
+          success: true,
+          slug: seedMatch.slug || cleanSlug,
+          source: 'MicroTV',
+          category: 'Mini Drama',
+          title: seedMatch.title,
+          poster: seedMatch.poster || seedMatch.thumbnail,
+          embedUrl: seedMatch.embedUrl,
+          downloadPhpUrl: seedMatch.downloadPhpUrl || '',
+          directStreamUrl: seedMatch.directStreamUrl,
+          rawStreamUrl: seedMatch.rawStreamUrl,
+          unplayableMessage: null,
+          aspectRatio: 'vertical',
+          qualities: seedMatch.qualities || [],
+          originalViews: seedMatch.views || '3.2K views',
+          publishDate: 'Recent'
+        });
+      }
+
       const postUrl = `https://new.microtv.st/post/${encodeURIComponent(cleanSlug)}`;
       let response = await fetch(postUrl, {
         headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' }
@@ -1175,6 +1247,25 @@ app.get('/api/post', async (req, res) => {
       }
 
       if (!response.ok) {
+        if (seedMatch) {
+          return res.json({
+            success: true,
+            slug: seedMatch.slug || cleanSlug,
+            source: 'MicroTV',
+            category: 'Mini Drama',
+            title: seedMatch.title,
+            poster: seedMatch.poster || seedMatch.thumbnail,
+            embedUrl: seedMatch.embedUrl || `https://new.microtv.st/post/${encodeURIComponent(cleanSlug)}`,
+            downloadPhpUrl: seedMatch.downloadPhpUrl || '',
+            directStreamUrl: seedMatch.directStreamUrl,
+            rawStreamUrl: seedMatch.rawStreamUrl,
+            unplayableMessage: null,
+            aspectRatio: 'vertical',
+            qualities: seedMatch.qualities || [],
+            originalViews: seedMatch.views || '3.2K views',
+            publishDate: 'Recent'
+          });
+        }
         return res.status(404).json({ success: false, error: `Series not found (HTTP ${response.status})` });
       }
 
