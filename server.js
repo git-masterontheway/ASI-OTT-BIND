@@ -820,6 +820,23 @@ function parseHdwallHtml(html) {
   return items;
 }
 
+app.get('/api/debug-microtv', async (req, res) => {
+  const results = {};
+  try {
+    const r1 = await fetch('https://new.microtv.st/?page=1', { headers: MICROTV_HEADERS });
+    results.googlebot = { status: r1.status, body: (await r1.text()).slice(0, 300) };
+  } catch (e) {
+    results.googlebot = { error: e.message };
+  }
+  try {
+    const r2 = await fetch('https://new.microtv.st/?page=1');
+    results.defaultFetch = { status: r2.status, body: (await r2.text()).slice(0, 300) };
+  } catch (e) {
+    results.defaultFetch = { error: e.message };
+  }
+  res.json(results);
+});
+
 // ---------------------------------------------------------------------------
 // 4. API: Unified Content Aggregation Endpoint (Homepage)
 // ---------------------------------------------------------------------------
