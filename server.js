@@ -466,52 +466,66 @@ function formatViewCount(rawViews) {
 // 1. SOURCE: new.microtv.st (Mini Drama / Reels)
 // ---------------------------------------------------------------------------
 
-const MICROTV_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9'
-};
+const MICROTV_CACHE = new Map();
+const MICROTV_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Dynamic live fetcher for new.microtv.st with anti-blocking crawler headers and proxy failover.
+ * Dynamic live fetcher for new.microtv.st with anti-blocking Jina AI reader and multi-proxy failover.
  * Ensures Mini Drama works seamlessly even on cloud hosting IPs (e.g. Vercel) where Cloudflare challenges appear.
  */
 async function fetchMicroTvHtml(targetUrl) {
-  // Strategy 1: Googlebot verified crawler headers (bypasses Cloudflare bot challenges without delay)
+  if (!targetUrl) return null;
+  const cached = MICROTV_CACHE.get(targetUrl);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  // Strategy 1: Jina AI cloud reader (Cleanly extracts full HTML bypassing Cloudflare on Vercel)
+  try {
+    const jinaUrl = `https://r.jina.ai/${targetUrl}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6500);
+    const jRes = await fetch(jinaUrl, {
+      headers: {
+        'X-Return-Format': 'html',
+        'X-No-Cache': 'true'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (jRes.ok) {
+      const html = await jRes.text();
+      if (html.length > 500 && !html.includes('Just a moment...') && (html.includes('post-card') || html.includes('embed-player') || html.includes('download.php') || html.includes('featured-poster'))) {
+        MICROTV_CACHE.set(targetUrl, { data: html, expiresAt: Date.now() + MICROTV_CACHE_TTL_MS });
+        return html;
+      }
+    }
+  } catch (e) {
+    console.warn('MicroTV Jina fetch warning:', e.message);
+  }
+
+  // Strategy 2: Direct fetch (for local development or if Cloudflare allows IP)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(targetUrl, {
-      headers: MICROTV_HEADERS,
+      headers: {
+        ...COMMON_HEADERS,
+        'Referer': 'https://new.microtv.st/'
+      },
       signal: controller.signal
     });
     clearTimeout(timeout);
     if (res.ok) {
       const text = await res.text();
       if (!text.includes('Just a moment...') && !text.includes('Checking your browser') && text.length > 500) {
+        MICROTV_CACHE.set(targetUrl, { data: text, expiresAt: Date.now() + MICROTV_CACHE_TTL_MS });
         return text;
       }
     }
   } catch (e) {
-    console.warn('MicroTV crawler fetch error:', e.message);
+    console.warn('MicroTV direct fetch error:', e.message);
   }
-
-  // Strategy 2: Lightweight curl agent
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(targetUrl, {
-      headers: { 'User-Agent': 'curl/8.4.0', 'Accept': '*/*' },
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const text = await res.text();
-      if (!text.includes('Just a moment...') && text.length > 500) {
-        return text;
-      }
-    }
-  } catch (e) {}
 
   // Strategy 3: allorigins fallback bridge
   try {
@@ -523,6 +537,7 @@ async function fetchMicroTvHtml(targetUrl) {
     if (pRes.ok) {
       const text = await pRes.text();
       if (text.length > 500 && !text.includes('Just a moment...')) {
+        MICROTV_CACHE.set(targetUrl, { data: text, expiresAt: Date.now() + MICROTV_CACHE_TTL_MS });
         return text;
       }
     }
@@ -820,22 +835,6 @@ function parseHdwallHtml(html) {
   return items;
 }
 
-app.get('/api/debug-microtv', async (req, res) => {
-  const results = {};
-  try {
-    const r1 = await fetch('https://new.microtv.st/?page=1', { headers: MICROTV_HEADERS });
-    results.googlebot = { status: r1.status, body: (await r1.text()).slice(0, 300) };
-  } catch (e) {
-    results.googlebot = { error: e.message };
-  }
-  try {
-    const r2 = await fetch('https://new.microtv.st/?page=1');
-    results.defaultFetch = { status: r2.status, body: (await r2.text()).slice(0, 300) };
-  } catch (e) {
-    results.defaultFetch = { error: e.message };
-  }
-  res.json(results);
-});
 
 // ---------------------------------------------------------------------------
 // 4. API: Unified Content Aggregation Endpoint (Homepage)
