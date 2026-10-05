@@ -466,37 +466,58 @@ function formatViewCount(rawViews) {
 // 1. SOURCE: new.microtv.st (Mini Drama / Reels)
 // ---------------------------------------------------------------------------
 
+const MICROTV_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9'
+};
+
 /**
- * Dynamic live fetcher for new.microtv.st with anti-blocking proxy failover.
+ * Dynamic live fetcher for new.microtv.st with anti-blocking crawler headers and proxy failover.
  * Ensures Mini Drama works seamlessly even on cloud hosting IPs (e.g. Vercel) where Cloudflare challenges appear.
  */
 async function fetchMicroTvHtml(targetUrl) {
+  // Strategy 1: Googlebot verified crawler headers (bypasses Cloudflare bot challenges without delay)
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(targetUrl, {
-      headers: {
-        ...COMMON_HEADERS,
-        'Referer': 'https://new.microtv.st/'
-      },
+      headers: MICROTV_HEADERS,
       signal: controller.signal
     });
     clearTimeout(timeout);
     if (res.ok) {
       const text = await res.text();
-      if (!text.includes('Just a moment...') && !text.includes('Checking your browser')) {
+      if (!text.includes('Just a moment...') && !text.includes('Checking your browser') && text.length > 500) {
         return text;
       }
     }
   } catch (e) {
-    console.warn('MicroTV direct fetch failed, trying proxy failover:', e.message);
+    console.warn('MicroTV crawler fetch error:', e.message);
   }
 
-  // Failover 1: allorigins proxy bridge (verified HTTP 200 on Vercel)
+  // Strategy 2: Lightweight curl agent
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(targetUrl, {
+      headers: { 'User-Agent': 'curl/8.4.0', 'Accept': '*/*' },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const text = await res.text();
+      if (!text.includes('Just a moment...') && text.length > 500) {
+        return text;
+      }
+    }
+  } catch (e) {}
+
+  // Strategy 3: allorigins fallback bridge
   try {
     const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(targetUrl);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const pRes = await fetch(proxyUrl, { signal: controller.signal });
     clearTimeout(timeout);
     if (pRes.ok) {
@@ -505,26 +526,7 @@ async function fetchMicroTvHtml(targetUrl) {
         return text;
       }
     }
-  } catch (e) {
-    console.warn('MicroTV allorigins proxy bridge warning:', e.message);
-  }
-
-  // Failover 2: codetabs proxy bridge
-  try {
-    const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
-    const pRes = await fetch(proxyUrl, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (pRes.ok) {
-      const text = await pRes.text();
-      if (text.length > 500 && !text.includes('Just a moment...')) {
-        return text;
-      }
-    }
-  } catch (e) {
-    console.warn('MicroTV codetabs proxy bridge warning:', e.message);
-  }
+  } catch (e) {}
 
   return null;
 }
