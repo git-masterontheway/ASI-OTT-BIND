@@ -271,7 +271,7 @@ async function loadEpisode() {
       detailPoster.src = seriesData.poster;
     }
 
-    // Video Playback Setup (Direct Stream or Designated Sandboxed Embed)
+    // Video Playback Setup (Direct Stream or Designated Embed)
     if (seriesData.directStreamUrl) {
       let streamEndpoint = seriesData.directStreamUrl;
       if (seriesData.directStreamUrl.startsWith('http')) {
@@ -289,19 +289,25 @@ async function loadEpisode() {
         window.hlsInstance = new Hls({ enableWorker: true });
         window.hlsInstance.loadSource(streamEndpoint);
         window.hlsInstance.attachMedia(customVideo);
+        switchToCustomPlayer();
       } else if (isM3u8 && customVideo.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS for Safari on iOS / macOS
         customVideo.src = streamEndpoint;
+        switchToCustomPlayer();
+      } else if (seriesData.embedUrl && (seriesData.directStreamUrl.includes('.mkv') || !seriesData.directStreamUrl.includes('.mp4'))) {
+        // Matroska (.mkv) container is unsupported natively in Chromium HTML5 <video>.
+        // Directly initialize the embed player (hbplay / morencius) which has built-in decoders.
+        embedIframe.src = seriesData.embedUrl;
+        switchToEmbedPlayer();
       } else {
         customVideo.src = streamEndpoint;
+        switchToCustomPlayer();
       }
-      switchToCustomPlayer();
     } else if (seriesData.embedUrl) {
-      // Use designated embed URL (e.g. morencius.com/embed/{id}) with proper sandbox attributes
+      // Use designated embed URL with clean unblocked iframe
       embedIframe.src = seriesData.embedUrl;
       switchToEmbedPlayer();
     } else {
-      // Clean backdrop/thumbnail with standard player container ready
       switchToCustomPlayer();
     }
 
@@ -880,10 +886,14 @@ async function initiateVerifiedDownload(downloadUrl, quality, size, encodedTitle
 
     const a = document.createElement('a');
     a.href = resolvedEndpoint;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
     a.download = targetFilename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 1000);
 
     showToast(`Download started: ${targetFilename}`, 'success');
 

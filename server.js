@@ -193,7 +193,7 @@ const RESOLVER_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Resolves a HubCloud link (e.g., https://hubcloud.ist/drive/... or https://hubcloud.ist/video/...)
- * Returns { cloudDirect, directDownload, hdCloud, streamUrl }
+ * Returns { cloudDirect, directDownload, hdCloud, streamUrl, embedUrl }
  */
 async function resolveHubCloudLink(hubCloudUrl) {
   if (!hubCloudUrl) return null;
@@ -236,11 +236,18 @@ async function resolveHubCloudLink(hubCloudUrl) {
     const cloudDirect = r2Match ? r2Match[1].replace(/&amp;/g, '&') : null;
     const directDownload = server10GbpsMatch ? server10GbpsMatch[1] : cloudDirect;
 
+    const stream = streamUrl || cloudDirect || directDownload;
+    let embedUrl = watchMatch ? watchMatch[1].replace(/&amp;/g, '&') : null;
+    if (!embedUrl && stream) {
+      embedUrl = `https://hbplay.pages.dev/?u=${Buffer.from(stream).toString('base64')}`;
+    }
+
     const result = {
       cloudDirect: cloudDirect || directDownload || hubCloudUrl,
       directDownload: directDownload || cloudDirect || hubCloudUrl,
       hdCloud: hubCloudUrl,
-      streamUrl: streamUrl || cloudDirect || directDownload
+      streamUrl: stream,
+      embedUrl
     };
 
     RESOLVER_CACHE.set(hubCloudUrl, { data: result, expiresAt: Date.now() + RESOLVER_TTL_MS });
@@ -253,7 +260,7 @@ async function resolveHubCloudLink(hubCloudUrl) {
 
 /**
  * Resolves a HubCDN link (e.g. from HDWall https://hubcdn.io/cloud/...)
- * Returns { filesDlUrl, cloudDirect, directDownload, hdCloud, streamUrl }
+ * Returns { filesDlUrl, cloudDirect, directDownload, hdCloud, streamUrl, embedUrl }
  */
 async function resolveHubCdnTier(hubCdnUrl) {
   if (!hubCdnUrl) return null;
@@ -269,46 +276,111 @@ async function resolveHubCdnTier(hubCdnUrl) {
     if (!r1.ok) return null;
     const h1 = await r1.text();
 
-    const targetMatch = h1.match(/var\s+targetUrl\s*=\s*["']([^"']+)["']/i) ||
-      h1.match(/<textarea[^>]+id=["']downloadLinkBox["'][^>]*>([\s\S]*?)<\/textarea>/i);
-    if (!targetMatch) return null;
-    const filesDlUrl = targetMatch[1].trim();
+    // Parse modern HubCDN route buttons: /l.php?...
+    const links = [...h1.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map(m => ({
+      href: m[1].replace(/&amp;/g, '&'),
+      text: m[2].replace(/<[^>]+>/g, '').trim()
+    }));
 
-    const r2 = await fetch(filesDlUrl, {
-      headers: { ...COMMON_HEADERS, 'Referer': hubCdnUrl }
-    });
-    if (!r2.ok) return null;
-    const h2 = await r2.text();
-
-    const links = [...h2.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
-    let cloudDirect = null;
-    let directDownload = null;
-    let hubCloud = null;
+    let cfRouteLink = null;
+    let directLink = null;
+    let hubCloudLink = null;
 
     for (const l of links) {
-      const href = l[1];
-      const text = l[2].replace(/<[^>]+>/g, '').trim();
+      if (l.href.includes('cf_route=')) {
+        cfRouteLink = l.href;
+      } else if (l.href.includes('hubcloud.ist')) {
+        hubCloudLink = l.href;
+      } else if (l.href.startsWith('/l.php') && !l.href.includes('tg_route=') && !l.href.includes('go_route=')) {
+        if (!directLink) directLink = l.href;
+      }
+    }
 
-      if (text.includes('Cloud Direct') || href.includes('store/a4udia') || href.includes('r2.cloudflarestorage')) {
-        cloudDirect = href;
-      } else if (text.includes('Direct Download') || href.includes('zdownload.php') || href.includes('googleusercontent')) {
-        directDownload = href;
-      } else if (text.includes('HubCloud') || href.includes('hubcloud.ist')) {
-        hubCloud = href;
+    let cloudDirect = null;
+    let directDownload = null;
+    let streamUrl = null;
+
+    // Follow cf_route with manual redirect to extract genuine Cloudflare R2 file URL
+    if (cfRouteLink) {
+      const fullCfUrl = cfRouteLink.startsWith('http') ? cfRouteLink : `https://hubcdn.io${cfRouteLink}`;
+      try {
+        const cfRes = await fetch(fullCfUrl, {
+          headers: { ...COMMON_HEADERS, 'Referer': hubCdnUrl },
+          redirect: 'manual'
+        });
+        if ([301, 302, 303, 307, 308].includes(cfRes.status)) {
+          const loc = cfRes.headers.get('location');
+          if (loc) {
+            cloudDirect = loc;
+            streamUrl = loc;
+          }
+        }
+      } catch (e) {
+        console.warn('HubCDN cf_route resolve error:', e.message);
+      }
+    }
+
+    // Follow direct route with manual redirect to extract genuine Google CDN video URL
+    if (directLink) {
+      const fullDirectUrl = directLink.startsWith('http') ? directLink : `https://hubcdn.io${directLink}`;
+      try {
+        const dRes = await fetch(fullDirectUrl, {
+          headers: { ...COMMON_HEADERS, 'Referer': hubCdnUrl },
+          redirect: 'manual'
+        });
+        if ([301, 302, 303, 307, 308].includes(dRes.status)) {
+          const loc = dRes.headers.get('location');
+          if (loc) {
+            directDownload = loc;
+            if (!streamUrl) streamUrl = loc;
+          }
+        }
+      } catch (e) {
+        console.warn('HubCDN direct route resolve error:', e.message);
+      }
+    }
+
+    // Fallback: If legacy targetUrl / textarea was present
+    if (!cloudDirect && !directDownload) {
+      const targetMatch = h1.match(/var\s+targetUrl\s*=\s*["']([^"']+)["']/i) ||
+        h1.match(/<textarea[^>]+id=["']downloadLinkBox["'][^>]*>([\s\S]*?)<\/textarea>/i);
+      if (targetMatch) {
+        const filesDlUrl = targetMatch[1].trim();
+        const r2 = await fetch(filesDlUrl, { headers: { ...COMMON_HEADERS, 'Referer': hubCdnUrl } });
+        if (r2.ok) {
+          const h2 = await r2.text();
+          const fLinks = [...h2.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+          for (const fl of fLinks) {
+            const href = fl[1];
+            const text = fl[2].replace(/<[^>]+>/g, '').trim();
+            if (text.includes('Cloud Direct') || href.includes('r2.cloudflarestorage') || href.includes('r2.dev')) {
+              cloudDirect = href;
+            } else if (text.includes('Direct Download') || href.includes('googleusercontent')) {
+              directDownload = href;
+            }
+          }
+        }
       }
     }
 
     let extra = null;
-    if (hubCloud) {
-      extra = await resolveHubCloudLink(hubCloud);
+    if (hubCloudLink) {
+      extra = await resolveHubCloudLink(hubCloudLink);
+    }
+
+    const finalStream = streamUrl || extra?.streamUrl || cloudDirect || directDownload;
+    let embedUrl = null;
+    if (finalStream) {
+      embedUrl = `https://hbplay.pages.dev/?u=${Buffer.from(finalStream).toString('base64')}`;
     }
 
     const result = {
-      filesDlUrl,
-      cloudDirect: extra?.cloudDirect || cloudDirect || filesDlUrl,
-      directDownload: directDownload || extra?.directDownload || filesDlUrl,
-      hdCloud: hubCloud || hubCdnUrl,
-      streamUrl: extra?.streamUrl || extra?.cloudDirect || cloudDirect
+      filesDlUrl: hubCdnUrl,
+      cloudDirect: cloudDirect || extra?.cloudDirect || directDownload || hubCdnUrl,
+      directDownload: directDownload || extra?.directDownload || cloudDirect || hubCdnUrl,
+      hdCloud: hubCloudLink || hubCdnUrl,
+      streamUrl: finalStream,
+      embedUrl: embedUrl || extra?.embedUrl
     };
 
     RESOLVER_CACHE.set(hubCdnUrl, { data: result, expiresAt: Date.now() + RESOLVER_TTL_MS });
@@ -393,6 +465,70 @@ function formatViewCount(rawViews) {
 // ---------------------------------------------------------------------------
 // 1. SOURCE: new.microtv.st (Mini Drama / Reels)
 // ---------------------------------------------------------------------------
+
+/**
+ * Dynamic live fetcher for new.microtv.st with anti-blocking proxy failover.
+ * Ensures Mini Drama works seamlessly even on cloud hosting IPs (e.g. Vercel) where Cloudflare challenges appear.
+ */
+async function fetchMicroTvHtml(targetUrl) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(targetUrl, {
+      headers: {
+        ...COMMON_HEADERS,
+        'Referer': 'https://new.microtv.st/'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const text = await res.text();
+      if (!text.includes('Just a moment...') && !text.includes('Checking your browser')) {
+        return text;
+      }
+    }
+  } catch (e) {
+    console.warn('MicroTV direct fetch failed, trying proxy failover:', e.message);
+  }
+
+  // Failover 1: allorigins proxy bridge (verified HTTP 200 on Vercel)
+  try {
+    const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(targetUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const pRes = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (pRes.ok) {
+      const text = await pRes.text();
+      if (text.length > 500 && !text.includes('Just a moment...')) {
+        return text;
+      }
+    }
+  } catch (e) {
+    console.warn('MicroTV allorigins proxy bridge warning:', e.message);
+  }
+
+  // Failover 2: codetabs proxy bridge
+  try {
+    const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const pRes = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (pRes.ok) {
+      const text = await pRes.text();
+      if (text.length > 500 && !text.includes('Just a moment...')) {
+        return text;
+      }
+    }
+  } catch (e) {
+    console.warn('MicroTV codetabs proxy bridge warning:', e.message);
+  }
+
+  return null;
+}
+
 function parseMicroTvCards(html) {
   const cards = [];
   const cardRegex = /<div\s+class=["']post-card["']>([\s\S]*?)<\/div>/gi;
@@ -702,9 +838,8 @@ app.get('/api/content', async (req, res) => {
     if (categoryFilter === 'mini_drama' || categoryFilter === 'mini drama' || categoryFilter === 'dramas') {
       // Dynamic real-time scraping of new.microtv.st for Mini Drama
       const microTvUrl = page > 1 ? `https://new.microtv.st/?page=${page}` : 'https://new.microtv.st/';
-      const microRes = await fetch(microTvUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } });
-      if (microRes.ok) {
-        const html = await microRes.text();
+      const html = await fetchMicroTvHtml(microTvUrl);
+      if (html) {
         allItems = parseMicroTvCards(html);
         pagination = parsePagination(html, page);
       }
@@ -751,17 +886,16 @@ app.get('/api/content', async (req, res) => {
     } else {
       // Default: Interleaved Aggregation across MicroTV, Movies4u & HDWall
       const microTvUrl = page > 1 ? `https://new.microtv.st/?page=${page}` : 'https://new.microtv.st/';
-      const [microRes, m4uItems, hdwallItems] = await Promise.allSettled([
-        fetch(microTvUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } }),
+      const [microHtml, m4uItems, hdwallItems] = await Promise.allSettled([
+        fetchMicroTvHtml(microTvUrl),
         fetchMovies4uHome(page),
         fetchHdwallHome(page)
       ]);
 
       let microItems = [];
-      if (microRes.status === 'fulfilled' && microRes.value.ok) {
-        const html = await microRes.value.text();
-        microItems = parseMicroTvCards(html);
-        pagination = parsePagination(html, page);
+      if (microHtml.status === 'fulfilled' && microHtml.value) {
+        microItems = parseMicroTvCards(microHtml.value);
+        pagination = parsePagination(microHtml.value, page);
       }
 
       const m4uList = m4uItems.status === 'fulfilled' ? m4uItems.value : [];
@@ -815,9 +949,8 @@ app.get('/api/search', async (req, res) => {
       const searchUrl = page > 1
         ? `https://new.microtv.st/?search=${encodeURIComponent(query)}&page=${page}`
         : `https://new.microtv.st/?search=${encodeURIComponent(query)}`;
-      const response = await fetch(searchUrl, { headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' } });
-      if (!response.ok) return [];
-      const html = await response.text();
+      const html = await fetchMicroTvHtml(searchUrl);
+      if (!html) return [];
       return parseMicroTvCards(html);
     })();
 
@@ -970,6 +1103,7 @@ app.get('/api/post', async (req, res) => {
       const links = [...html.matchAll(/<a[^>]+href=["'](https?:\/\/hubcdn\.io\/cloud\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
       const qualities = [];
       let directStreamUrl = null;
+      let embedUrl = null;
 
       // Fast resolve first quality link to enable native on-site video playback if available
       if (links.length > 0) {
@@ -978,6 +1112,9 @@ app.get('/api/post', async (req, res) => {
           const resolvedFirst = await resolveHubCdnTier(firstHubUrl);
           if (resolvedFirst?.streamUrl) {
             directStreamUrl = resolvedFirst.streamUrl;
+          }
+          if (resolvedFirst?.embedUrl) {
+            embedUrl = resolvedFirst.embedUrl;
           }
         } catch (e) {
           console.warn('Pre-resolve HDWall stream warning:', e.message);
@@ -1029,7 +1166,7 @@ app.get('/api/post', async (req, res) => {
         category: detectCategory(title, 'HDWall'),
         title,
         poster,
-        embedUrl: null,
+        embedUrl,
         directStreamUrl,
         isPlayable: true,
         unplayableMessage: null,
@@ -1153,15 +1290,24 @@ app.get('/api/post', async (req, res) => {
             }
 
             // Pre-resolve first HubCloud link to get direct stream if not already obtained
-            if (!directStreamUrl && qualities.length > 0 && qualities[0].hubUrl) {
+            if (qualities.length > 0 && qualities[0].hubUrl) {
               try {
                 const resolvedHub = await resolveHubCloudLink(qualities[0].hubUrl);
-                if (resolvedHub && resolvedHub.streamUrl) {
-                  directStreamUrl = resolvedHub.streamUrl;
+                if (resolvedHub) {
+                  if (!directStreamUrl && resolvedHub.streamUrl) {
+                    directStreamUrl = resolvedHub.streamUrl;
+                  }
+                  if (!embedUrl && resolvedHub.embedUrl) {
+                    embedUrl = resolvedHub.embedUrl;
+                  }
                 }
               } catch (e) {
                 console.warn('Movies4u hub pre-resolve warning:', e.message);
               }
+            }
+
+            if (!embedUrl && directStreamUrl) {
+              embedUrl = `https://hbplay.pages.dev/?u=${Buffer.from(directStreamUrl).toString('base64')}`;
             }
           }
         } catch (mErr) {
@@ -1209,25 +1355,15 @@ app.get('/api/post', async (req, res) => {
       // ---------------- MicroTV Detail Handler (Pure Live Scraping) ----------------
       const cleanSlug = slug.replace(/^\/+|\/+$/g, '');
       const postUrl = `https://new.microtv.st/post/${encodeURIComponent(cleanSlug)}`;
-      let response = await fetch(postUrl, {
-        headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' }
-      });
+      let html = await fetchMicroTvHtml(postUrl);
 
-      if (!response.ok) {
+      if (!html) {
         try {
-          const searchRes = await fetch(`https://new.microtv.st/search?q=${encodeURIComponent(cleanSlug.replace(/[-_]/g, ' '))}`, {
-            headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' }
-          });
-          if (searchRes.ok) {
-            const searchHtml = await searchRes.text();
+          const searchHtml = await fetchMicroTvHtml(`https://new.microtv.st/search?q=${encodeURIComponent(cleanSlug.replace(/[-_]/g, ' '))}`);
+          if (searchHtml) {
             const postMatch = searchHtml.match(/<a\s+[^>]*href=["'](?:https?:\/\/new\.microtv\.st)?\/post\/([^"']+)["']/i);
             if (postMatch) {
-              const altRes = await fetch(`https://new.microtv.st/post/${encodeURIComponent(postMatch[1])}`, {
-                headers: { ...COMMON_HEADERS, 'Referer': 'https://new.microtv.st/' }
-              });
-              if (altRes.ok) {
-                response = altRes;
-              }
+              html = await fetchMicroTvHtml(`https://new.microtv.st/post/${encodeURIComponent(postMatch[1])}`);
             }
           }
         } catch (mErr) {
@@ -1235,11 +1371,9 @@ app.get('/api/post', async (req, res) => {
         }
       }
 
-      if (!response.ok) {
-        return res.status(404).json({ success: false, error: `Series not found on MicroTV (HTTP ${response.status})` });
+      if (!html) {
+        return res.status(404).json({ success: false, error: 'Series not found on MicroTV' });
       }
-
-      const html = await response.text();
 
       // Title
       const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -1566,11 +1700,24 @@ app.get('/api/stream-video', async (req, res) => {
     res.status(videoRes.status);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
 
+    let hasContentType = false;
     for (const [key, value] of videoRes.headers.entries()) {
-      if (['content-range', 'content-length', 'content-type', 'accept-ranges', 'content-disposition'].includes(key.toLowerCase())) {
+      const lower = key.toLowerCase();
+      if (['content-range', 'content-length', 'accept-ranges', 'content-disposition'].includes(lower)) {
         res.setHeader(key, value);
+      } else if (lower === 'content-type') {
+        hasContentType = true;
+        if (value.toLowerCase().includes('octet-stream') || !value) {
+          res.setHeader('Content-Type', 'video/mp4');
+        } else {
+          res.setHeader(key, value);
+        }
       }
+    }
+    if (!hasContentType) {
+      res.setHeader('Content-Type', 'video/mp4');
     }
 
     const nodeStream = Readable.fromWeb(videoRes.body);
