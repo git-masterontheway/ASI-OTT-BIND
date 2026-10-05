@@ -94,8 +94,21 @@ const speedButtons = document.querySelectorAll('.speed-btn');
 const valSpeed = document.getElementById('val-speed');
 const toggleAspectBtn = document.getElementById('toggle-aspect-btn');
 const aspectLabel = document.getElementById('aspect-label');
-const togglePlayerModeBtn = document.getElementById('toggle-player-mode-btn');
-const playerModeLabel = document.getElementById('player-mode-label');
+const toggleRotateBtn = document.getElementById('toggle-rotate-btn');
+const ctrlRotateBtn = document.getElementById('ctrl-rotate-btn');
+const btnModeDirect = document.getElementById('btn-mode-direct');
+const btnModeEmbed = document.getElementById('btn-mode-embed');
+
+// Audio & Subtitles Elements
+const ctrlAudioBtn = document.getElementById('ctrl-audio-btn');
+const playerAudioPopover = document.getElementById('player-audio-popover');
+const audioCloseBtn = document.getElementById('audio-close-btn');
+const audioTracksList = document.getElementById('audio-tracks-list');
+const ctrlSubtitlesBtn = document.getElementById('ctrl-subtitles-btn');
+const playerSubtitlesPopover = document.getElementById('player-subtitles-popover');
+const subtitlesCloseBtn = document.getElementById('subtitles-close-btn');
+const subtitlesTracksList = document.getElementById('subtitles-tracks-list');
+const subFileInput = document.getElementById('sub-file-input');
 
 // Content Detail & Topbar Elements
 const topbarSource = document.getElementById('topbar-source');
@@ -273,49 +286,17 @@ async function loadEpisode() {
 
     // Video Playback Setup (Direct Stream or Designated Embed)
     if (seriesData.directStreamUrl) {
-      let streamEndpoint = seriesData.directStreamUrl;
-      if (seriesData.directStreamUrl.startsWith('http')) {
-        streamEndpoint = `${API_BASE}/api/stream-video?url=${encodeURIComponent(seriesData.directStreamUrl)}`;
-      } else if (seriesData.directStreamUrl.startsWith('/api/')) {
-        streamEndpoint = `${API_BASE}${seriesData.directStreamUrl}`;
-      }
-
-      const isM3u8 = seriesData.directStreamUrl.includes('.m3u8') || streamEndpoint.includes('.m3u8');
-
-      if (isM3u8 && window.Hls && Hls.isSupported()) {
-        if (window.hlsInstance) {
-          window.hlsInstance.destroy();
-        }
-        window.hlsInstance = new Hls({ enableWorker: true });
-        window.hlsInstance.loadSource(streamEndpoint);
-        window.hlsInstance.attachMedia(customVideo);
-        switchToCustomPlayer();
-      } else if (isM3u8 && customVideo.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS for Safari on iOS / macOS
-        customVideo.src = streamEndpoint;
-        switchToCustomPlayer();
-      } else if (seriesData.embedUrl && (seriesData.directStreamUrl.includes('.mkv') || !seriesData.directStreamUrl.includes('.mp4'))) {
-        // Matroska (.mkv) container is unsupported natively in Chromium HTML5 <video>.
-        // Directly initialize the embed player (hbplay / morencius) which has built-in decoders.
-        embedIframe.src = seriesData.embedUrl;
-        switchToEmbedPlayer();
-      } else {
-        customVideo.src = streamEndpoint;
-        switchToCustomPlayer();
-      }
+      setupDirectStreamPlayback(true);
     } else if (seriesData.embedUrl) {
-      // Use designated embed URL with clean unblocked iframe
-      embedIframe.src = seriesData.embedUrl;
       switchToEmbedPlayer();
     } else {
-      switchToCustomPlayer();
+      switchToCustomPlayer(false);
     }
 
     // Fallback to embedded player if video element encountered an unsupported codec
     customVideo.onerror = () => {
       if (seriesData.embedUrl && activePlayerType !== 'embed') {
         console.warn('Native stream error, switching to designated embed player...');
-        embedIframe.src = seriesData.embedUrl;
         switchToEmbedPlayer();
       }
     };
@@ -348,6 +329,92 @@ async function loadEpisode() {
 }
 
 /**
+ * Setup Direct Stream Playback (Native HTML5 or HLS.js with Audio/Subtitle Tracks)
+ */
+function setupDirectStreamPlayback(autoPlay = true) {
+  if (!seriesData?.directStreamUrl) {
+    if (seriesData?.embedUrl) {
+      showToast('Direct stream unavailable, loading embedded player...', 'info');
+      switchToEmbedPlayer();
+    } else {
+      showToast('No playable media source found for this title.', 'error');
+    }
+    return;
+  }
+
+  let streamEndpoint = seriesData.directStreamUrl;
+  if (seriesData.directStreamUrl.startsWith('http')) {
+    streamEndpoint = `${API_BASE}/api/stream-video?url=${encodeURIComponent(seriesData.directStreamUrl)}`;
+  } else if (seriesData.directStreamUrl.startsWith('/api/')) {
+    streamEndpoint = `${API_BASE}${seriesData.directStreamUrl}`;
+  }
+
+  const isM3u8 = seriesData.directStreamUrl.includes('.m3u8') || streamEndpoint.includes('.m3u8');
+
+  if (isM3u8 && window.Hls && Hls.isSupported()) {
+    if (window.hlsInstance) {
+      window.hlsInstance.destroy();
+    }
+    window.hlsInstance = new Hls({
+      enableWorker: true,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60
+    });
+    window.hlsInstance.loadSource(streamEndpoint);
+    window.hlsInstance.attachMedia(customVideo);
+
+    window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+      populateAudioTracks();
+      populateSubtitleTracks();
+      if (autoPlay) {
+        startVideoPlayback();
+      }
+    });
+
+    window.hlsInstance.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+      populateAudioTracks();
+    });
+
+    window.hlsInstance.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+      populateSubtitleTracks();
+    });
+
+    window.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        console.warn('Fatal HLS error, attempting recovery or fallback to embed:', data.details);
+        if (seriesData.embedUrl && activePlayerType !== 'embed') {
+          switchToEmbedPlayer();
+        }
+      }
+    });
+    switchToCustomPlayer(autoPlay);
+
+  } else if (isM3u8 && customVideo.canPlayType('application/vnd.apple.mpegurl')) {
+    // Native HLS for Safari on iOS / macOS
+    customVideo.src = streamEndpoint;
+    customVideo.addEventListener('loadedmetadata', () => {
+      populateAudioTracks();
+      populateSubtitleTracks();
+      if (autoPlay) startVideoPlayback();
+    }, { once: true });
+    switchToCustomPlayer(autoPlay);
+
+  } else if (seriesData.embedUrl && (seriesData.directStreamUrl.includes('.mkv') || !seriesData.directStreamUrl.includes('.mp4'))) {
+    // Matroska container fallback: initialize embed player
+    embedIframe.src = seriesData.embedUrl;
+    switchToEmbedPlayer();
+
+  } else {
+    // Direct MP4 or proxied video stream
+    customVideo.src = streamEndpoint;
+    customVideo.load();
+    populateAudioTracks();
+    populateSubtitleTracks();
+    switchToCustomPlayer(autoPlay);
+  }
+}
+
+/**
  * Aspect Ratio Handler (Horizontal 16:9 vs Vertical 9:16)
  */
 function setAspectRatio(mode) {
@@ -355,33 +422,57 @@ function setAspectRatio(mode) {
     playerStage.classList.remove('aspect-vertical');
     playerStage.classList.add('aspect-theater');
     currentAspectRatio = 'theater';
-    if (aspectLabel) aspectLabel.textContent = 'Horizontal 16:9';
-    toggleAspectBtn.innerHTML = `<i class="fa-solid fa-desktop"></i> <span id="aspect-label">Horizontal 16:9</span>`;
+    if (aspectLabel) aspectLabel.textContent = '16:9';
+    if (toggleAspectBtn) toggleAspectBtn.innerHTML = `<i class="fa-solid fa-desktop"></i> <span id="aspect-label">16:9</span>`;
   } else {
     playerStage.classList.remove('aspect-theater');
     playerStage.classList.add('aspect-vertical');
     currentAspectRatio = 'vertical';
-    if (aspectLabel) aspectLabel.textContent = 'Vertical 9:16';
-    toggleAspectBtn.innerHTML = `<i class="fa-solid fa-mobile-screen"></i> <span id="aspect-label">Vertical 9:16</span>`;
+    if (aspectLabel) aspectLabel.textContent = '9:16';
+    if (toggleAspectBtn) toggleAspectBtn.innerHTML = `<i class="fa-solid fa-mobile-screen"></i> <span id="aspect-label">9:16</span>`;
   }
 }
 
-toggleAspectBtn.addEventListener('click', () => {
+if (toggleAspectBtn) {
+  toggleAspectBtn.addEventListener('click', () => {
+    if (currentAspectRatio === 'theater') {
+      setAspectRatio('vertical');
+      showToast('Player switched to Vertical 9:16', 'info');
+    } else {
+      setAspectRatio('theater');
+      showToast('Player switched to Horizontal 16:9', 'info');
+    }
+  });
+}
+
+/**
+ * Screen Rotation Controller (Toggle Portrait / Landscape)
+ */
+function toggleScreenRotation() {
   if (currentAspectRatio === 'theater') {
     setAspectRatio('vertical');
-    showToast('Player switched to Vertical 9:16', 'info');
+    showToast('Screen rotated to Portrait (9:16)', 'info');
   } else {
     setAspectRatio('theater');
-    showToast('Player switched to Horizontal 16:9', 'info');
+    showToast('Screen rotated to Landscape (16:9)', 'info');
   }
-});
+
+  // Request hardware orientation change if in fullscreen
+  if (document.fullscreenElement && screen.orientation && screen.orientation.lock) {
+    const targetOrientation = currentAspectRatio === 'theater' ? 'landscape' : 'portrait';
+    screen.orientation.lock(targetOrientation).catch(() => {});
+  }
+}
+
+if (toggleRotateBtn) toggleRotateBtn.addEventListener('click', toggleScreenRotation);
+if (ctrlRotateBtn) ctrlRotateBtn.addEventListener('click', toggleScreenRotation);
 
 /**
  * Switch Player Modes (Direct Stream vs Embed)
  */
 function switchToEmbedPlayer() {
   if (!seriesData?.embedUrl) {
-    showToast('No embed player stream available for this title', 'error');
+    showToast('No embedded player stream available for this title', 'error');
     return;
   }
   customVideo.pause();
@@ -391,26 +482,266 @@ function switchToEmbedPlayer() {
   centerPlayBtn.style.display = 'none';
   playerOverlay.style.display = 'none';
   activePlayerType = 'embed';
-  if (playerModeLabel) playerModeLabel.textContent = 'Embed Player';
-  togglePlayerModeBtn.innerHTML = `<i class="fa-solid fa-window-maximize"></i> <span>Embed Player</span>`;
+
+  if (btnModeEmbed) btnModeEmbed.classList.add('active');
+  if (btnModeDirect) btnModeDirect.classList.remove('active');
+
+  closeAllPopovers();
+  showToast('Switched to Embedded Player', 'info');
 }
 
-function switchToCustomPlayer() {
+function switchToCustomPlayer(forcePlay = true) {
   embedIframe.style.display = 'none';
   embedIframe.src = '';
   customVideo.style.display = 'block';
   centerPlayBtn.style.display = 'flex';
   playerOverlay.style.display = 'flex';
   activePlayerType = 'custom';
-  if (playerModeLabel) playerModeLabel.textContent = 'Direct Stream';
-  togglePlayerModeBtn.innerHTML = `<i class="fa-solid fa-sliders"></i> <span>Direct Stream</span>`;
+
+  if (btnModeDirect) btnModeDirect.classList.add('active');
+  if (btnModeEmbed) btnModeEmbed.classList.remove('active');
+
+  if (!customVideo.src && !window.hlsInstance) {
+    setupDirectStreamPlayback(forcePlay);
+  } else if (forcePlay) {
+    startVideoPlayback();
+  }
+  showToast('Switched to Direct Stream Player', 'info');
 }
 
-togglePlayerModeBtn.addEventListener('click', () => {
-  if (activePlayerType === 'custom') {
-    switchToEmbedPlayer();
+if (btnModeDirect) {
+  btnModeDirect.addEventListener('click', () => {
+    if (activePlayerType !== 'custom') {
+      switchToCustomPlayer(true);
+    }
+  });
+}
+
+if (btnModeEmbed) {
+  btnModeEmbed.addEventListener('click', () => {
+    if (activePlayerType !== 'embed') {
+      switchToEmbedPlayer();
+    }
+  });
+}
+
+/**
+ * Multi-Audio Track Management
+ */
+function populateAudioTracks() {
+  if (!audioTracksList) return;
+  audioTracksList.innerHTML = '';
+
+  if (window.hlsInstance && window.hlsInstance.audioTracks && window.hlsInstance.audioTracks.length > 0) {
+    const tracks = window.hlsInstance.audioTracks;
+    const currentTrack = window.hlsInstance.audioTrack;
+
+    tracks.forEach((track, idx) => {
+      const trackDiv = document.createElement('div');
+      trackDiv.className = `track-item ${idx === currentTrack ? 'active' : ''}`;
+      trackDiv.dataset.index = idx;
+      trackDiv.innerHTML = `
+        <span>${track.name || track.lang || `Audio Track ${idx + 1}`}</span>
+        <i class="fa-solid fa-check"></i>
+      `;
+      trackDiv.addEventListener('click', () => {
+        window.hlsInstance.audioTrack = idx;
+        audioTracksList.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
+        trackDiv.classList.add('active');
+        showToast(`Audio track: ${track.name || track.lang || `Track ${idx + 1}`}`, 'info');
+        closeAllPopovers();
+      });
+      audioTracksList.appendChild(trackDiv);
+    });
+  } else if (customVideo.audioTracks && customVideo.audioTracks.length > 0) {
+    for (let i = 0; i < customVideo.audioTracks.length; i++) {
+      const track = customVideo.audioTracks[i];
+      const trackDiv = document.createElement('div');
+      trackDiv.className = `track-item ${track.enabled ? 'active' : ''}`;
+      trackDiv.dataset.index = i;
+      trackDiv.innerHTML = `
+        <span>${track.label || track.language || `Audio Track ${i + 1}`}</span>
+        <i class="fa-solid fa-check"></i>
+      `;
+      trackDiv.addEventListener('click', () => {
+        for (let j = 0; j < customVideo.audioTracks.length; j++) {
+          customVideo.audioTracks[j].enabled = (j === i);
+        }
+        audioTracksList.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
+        trackDiv.classList.add('active');
+        showToast(`Audio track: ${track.label || track.language || `Track ${i + 1}`}`, 'info');
+        closeAllPopovers();
+      });
+      audioTracksList.appendChild(trackDiv);
+    }
   } else {
-    switchToCustomPlayer();
+    audioTracksList.innerHTML = `
+      <div class="track-item active" data-index="0">
+        <span>Default Audio (Stereo)</span>
+        <i class="fa-solid fa-check"></i>
+      </div>
+    `;
+  }
+}
+
+/**
+ * Subtitle & Caption Management
+ */
+function populateSubtitleTracks() {
+  if (!subtitlesTracksList) return;
+  subtitlesTracksList.innerHTML = '';
+
+  // "Off" option
+  const offDiv = document.createElement('div');
+  const isHlsOff = window.hlsInstance ? (window.hlsInstance.subtitleTrack === -1) : true;
+  offDiv.className = `track-item ${isHlsOff ? 'active' : ''}`;
+  offDiv.dataset.index = -1;
+  offDiv.innerHTML = `
+    <span>Off (No Captions)</span>
+    <i class="fa-solid fa-check"></i>
+  `;
+  offDiv.addEventListener('click', () => {
+    if (window.hlsInstance) {
+      window.hlsInstance.subtitleTrack = -1;
+    }
+    for (let i = 0; i < customVideo.textTracks.length; i++) {
+      customVideo.textTracks[i].mode = 'disabled';
+    }
+    subtitlesTracksList.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
+    offDiv.classList.add('active');
+    showToast('Subtitles turned off', 'info');
+    closeAllPopovers();
+  });
+  subtitlesTracksList.appendChild(offDiv);
+
+  // HLS Subtitle Tracks
+  if (window.hlsInstance && window.hlsInstance.subtitleTracks && window.hlsInstance.subtitleTracks.length > 0) {
+    window.hlsInstance.subtitleTracks.forEach((track, idx) => {
+      const trackDiv = document.createElement('div');
+      trackDiv.className = `track-item ${idx === window.hlsInstance.subtitleTrack ? 'active' : ''}`;
+      trackDiv.dataset.index = idx;
+      trackDiv.innerHTML = `
+        <span>${track.name || track.lang || `Subtitle ${idx + 1}`}</span>
+        <i class="fa-solid fa-check"></i>
+      `;
+      trackDiv.addEventListener('click', () => {
+        window.hlsInstance.subtitleTrack = idx;
+        subtitlesTracksList.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
+        trackDiv.classList.add('active');
+        showToast(`Subtitles: ${track.name || track.lang || `Track ${idx + 1}`}`, 'info');
+        closeAllPopovers();
+      });
+      subtitlesTracksList.appendChild(trackDiv);
+    });
+  }
+
+  // HTML5 Video Text Tracks
+  if (customVideo.textTracks && customVideo.textTracks.length > 0) {
+    for (let i = 0; i < customVideo.textTracks.length; i++) {
+      const t = customVideo.textTracks[i];
+      const trackDiv = document.createElement('div');
+      trackDiv.className = `track-item ${t.mode === 'showing' ? 'active' : ''}`;
+      trackDiv.innerHTML = `
+        <span>${t.label || t.language || `Caption ${i + 1}`}</span>
+        <i class="fa-solid fa-check"></i>
+      `;
+      trackDiv.addEventListener('click', () => {
+        for (let j = 0; j < customVideo.textTracks.length; j++) {
+          customVideo.textTracks[j].mode = (j === i) ? 'showing' : 'disabled';
+        }
+        if (window.hlsInstance) window.hlsInstance.subtitleTrack = -1;
+        subtitlesTracksList.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
+        trackDiv.classList.add('active');
+        showToast(`Subtitles: ${t.label || `Caption ${i + 1}`}`, 'info');
+        closeAllPopovers();
+      });
+      subtitlesTracksList.appendChild(trackDiv);
+    }
+  }
+}
+
+// Custom subtitle file loader (.vtt / .srt)
+if (subFileInput) {
+  subFileInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      let vttContent = evt.target.result;
+      if (file.name.endsWith('.srt')) {
+        vttContent = 'WEBVTT\n\n' + vttContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+      }
+      const blob = new Blob([vttContent], { type: 'text/vtt' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = file.name.replace(/\.[^/.]+$/, '');
+      track.srclang = 'custom';
+      track.src = blobUrl;
+      track.default = true;
+      customVideo.appendChild(track);
+
+      setTimeout(() => {
+        const lastIdx = customVideo.textTracks.length - 1;
+        if (customVideo.textTracks[lastIdx]) {
+          for (let j = 0; j < customVideo.textTracks.length; j++) {
+            customVideo.textTracks[j].mode = (j === lastIdx) ? 'showing' : 'disabled';
+          }
+        }
+        populateSubtitleTracks();
+        showToast(`Loaded custom subtitle: ${file.name}`, 'success');
+        closeAllPopovers();
+      }, 100);
+    };
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * Popover Controls (Settings, Audio, Subtitles)
+ */
+function closeAllPopovers() {
+  if (playerSettingsPopover) playerSettingsPopover.classList.remove('open');
+  if (playerAudioPopover) playerAudioPopover.classList.remove('open');
+  if (playerSubtitlesPopover) playerSubtitlesPopover.classList.remove('open');
+}
+
+if (ctrlAudioBtn) {
+  ctrlAudioBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = playerAudioPopover && playerAudioPopover.classList.contains('open');
+    closeAllPopovers();
+    if (!isOpen && playerAudioPopover) {
+      populateAudioTracks();
+      playerAudioPopover.classList.add('open');
+    }
+  });
+}
+
+if (ctrlSubtitlesBtn) {
+  ctrlSubtitlesBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = playerSubtitlesPopover && playerSubtitlesPopover.classList.contains('open');
+    closeAllPopovers();
+    if (!isOpen && playerSubtitlesPopover) {
+      populateSubtitleTracks();
+      playerSubtitlesPopover.classList.add('open');
+    }
+  });
+}
+
+if (audioCloseBtn) audioCloseBtn.addEventListener('click', (e) => { e.stopPropagation(); closeAllPopovers(); });
+if (subtitlesCloseBtn) subtitlesCloseBtn.addEventListener('click', (e) => { e.stopPropagation(); closeAllPopovers(); });
+
+document.addEventListener('click', (e) => {
+  const isInside = (playerSettingsPopover && playerSettingsPopover.contains(e.target)) ||
+                   (playerAudioPopover && playerAudioPopover.contains(e.target)) ||
+                   (playerSubtitlesPopover && playerSubtitlesPopover.contains(e.target)) ||
+                   e.target === ctrlSettingsBtn || e.target === ctrlAudioBtn || e.target === ctrlSubtitlesBtn;
+  if (!isInside) {
+    closeAllPopovers();
   }
 });
 

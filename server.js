@@ -1452,23 +1452,23 @@ app.get('/api/post', async (req, res) => {
         {
           quality: '480p',
           size: '450MB',
-          cloudDirectUrl: directStreamUrl ? `/api/stream-download?url=${encodeURIComponent(directStreamUrl)}&filename=${encodeURIComponent(`${title}_480p.mkv`)}` : `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl)}&title=${encodeURIComponent(title)}&quality=480p`,
-          directDownloadUrl: directStreamUrl || downloadPhpUrl,
-          hdCloudUrl: downloadPhpUrl
+          cloudDirectUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=fast_cloud_r2_download&title=${encodeURIComponent(title)}&quality=480p&type=cloud_direct`,
+          directDownloadUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=download&title=${encodeURIComponent(title)}&quality=480p&type=direct`,
+          hdCloudUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=xcloud_download&title=${encodeURIComponent(title)}&quality=480p&type=hd_cloud`
         },
         {
           quality: '720p',
           size: '1.2GB',
-          cloudDirectUrl: directStreamUrl ? `/api/stream-download?url=${encodeURIComponent(directStreamUrl)}&filename=${encodeURIComponent(`${title}_720p.mkv`)}` : `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl)}&title=${encodeURIComponent(title)}&quality=720p`,
-          directDownloadUrl: directStreamUrl || downloadPhpUrl,
-          hdCloudUrl: downloadPhpUrl
+          cloudDirectUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=fast_cloud_r2_download&title=${encodeURIComponent(title)}&quality=720p&type=cloud_direct`,
+          directDownloadUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=download&title=${encodeURIComponent(title)}&quality=720p&type=direct`,
+          hdCloudUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=xcloud_download&title=${encodeURIComponent(title)}&quality=720p&type=hd_cloud`
         },
         {
           quality: '1080p',
           size: '2.9GB',
-          cloudDirectUrl: directStreamUrl ? `/api/stream-download?url=${encodeURIComponent(directStreamUrl)}&filename=${encodeURIComponent(`${title}_1080p.mkv`)}` : `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl)}&title=${encodeURIComponent(title)}&quality=1080p`,
-          directDownloadUrl: directStreamUrl || downloadPhpUrl,
-          hdCloudUrl: downloadPhpUrl
+          cloudDirectUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=fast_cloud_r2_download&title=${encodeURIComponent(title)}&quality=1080p&type=cloud_direct`,
+          directDownloadUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=download&title=${encodeURIComponent(title)}&quality=1080p&type=direct`,
+          hdCloudUrl: `/api/cloud-direct-download?downloadPhpUrl=${encodeURIComponent(downloadPhpUrl || '')}&fileUrl=${encodeURIComponent(directStreamUrl || '')}&action=xcloud_download&title=${encodeURIComponent(title)}&quality=1080p&type=hd_cloud`
         }
       ];
 
@@ -1502,12 +1502,12 @@ app.get('/api/post', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // 7. API: Cloud Direct Resolver (Initiates instant file download without ad popups or redirects)
 // ---------------------------------------------------------------------------
 app.get('/api/cloud-direct-download', async (req, res) => {
-  const { hubUrl, downloadPhpUrl, quality = '1080p', type = 'cloud_direct' } = req.query;
+  const { hubUrl, downloadPhpUrl, fileUrl, quality = '1080p', type = 'cloud_direct', action = 'fast_cloud_r2_download' } = req.query;
   let title = req.query.title || 'ASI_OTT_Release';
-  let filename = `${title.replace(/[/\\?%*:|"<>]/g, '_')}_${quality}.mkv`;
 
   try {
     let resolvedData = null;
@@ -1522,7 +1522,7 @@ app.get('/api/cloud-direct-download', async (req, res) => {
 
     if (resolvedData) {
       if (type === 'direct') {
-        // High Speed 10Gbps Direct
+        // High Speed 10Gbps Direct (Google CDN / Direct file)
         let directUrl = resolvedData.directDownload;
         if (directUrl && directUrl.includes('zdownload.php')) {
           try {
@@ -1533,7 +1533,7 @@ app.get('/api/cloud-direct-download', async (req, res) => {
             if (zRes.status === 302 || zRes.status === 301) {
               const googleCdn = zRes.headers.get('location');
               if (googleCdn) {
-                return res.redirect(googleCdn);
+                return res.redirect(302, googleCdn);
               }
             }
           } catch (ze) {
@@ -1541,27 +1541,31 @@ app.get('/api/cloud-direct-download', async (req, res) => {
           }
         }
         if (directUrl && directUrl.startsWith('http')) {
-          return res.redirect(directUrl);
+          return res.redirect(302, directUrl);
         }
       } else if (type === 'hd_cloud') {
         // HD Cloud / HubCloud Mirror
         let hdUrl = resolvedData.hdCloud || hubUrl;
         if (hdUrl && hdUrl.startsWith('http')) {
-          return res.redirect(hdUrl);
+          return res.redirect(302, hdUrl);
         }
       } else {
-        // Cloud Direct (Fast Cloudflare R2 / Server)
+        // Cloud Direct (Fast Cloudflare R2 / Server storage)
         let cloudUrl = resolvedData.cloudDirect || resolvedData.streamUrl;
         if (cloudUrl && cloudUrl.startsWith('http')) {
-          return res.redirect(cloudUrl);
+          return res.redirect(302, cloudUrl);
         }
       }
     }
 
-    // MicroTV Fast Cloud R2 resolution
+    // MicroTV Fast Cloud R2 / Direct / XCloud resolution via download.php
     if (downloadPhpUrl) {
+      const actionName = (type === 'direct' || action === 'download') ? 'download'
+        : (type === 'hd_cloud' || action === 'xcloud_download') ? 'xcloud_download'
+        : 'fast_cloud_r2_download';
+
       const body = new URLSearchParams();
-      body.append('fast_cloud_r2_download', '1');
+      body.append(actionName, '1');
       const fslRes = await fetch(downloadPhpUrl, {
         method: 'POST',
         headers: {
@@ -1576,9 +1580,14 @@ app.get('/api/cloud-direct-download', async (req, res) => {
       if (fslRes.status === 302 || fslRes.status === 301) {
         const directFileUrl = fslRes.headers.get('location');
         if (directFileUrl) {
-          return res.redirect(directFileUrl);
+          return res.redirect(302, directFileUrl);
         }
       }
+    }
+
+    // Direct File URL fallback
+    if (fileUrl && fileUrl.startsWith('http')) {
+      return res.redirect(302, fileUrl);
     }
 
     // Prevention of False Downloads: Return clean error if no valid media source can be resolved
@@ -1596,11 +1605,10 @@ app.get('/api/cloud-direct-download', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. API: Direct Stream Download (Clean stream with attachment header & referer injection)
+// 8. API: Direct Stream Download (Clean 302 direct delivery to prevent serverless timeouts)
 // ---------------------------------------------------------------------------
 app.get('/api/stream-download', async (req, res) => {
   const fileUrl = req.query.url;
-  let filename = req.query.filename || 'ASI_OTT_Video.mkv';
 
   // Prevention of False Downloads: Never serve dummy text as video!
   if (!fileUrl) {
@@ -1610,52 +1618,8 @@ app.get('/api/stream-download', async (req, res) => {
     });
   }
 
-  try {
-    const { response: fileRes } = await fetchWithRefererRedirect(fileUrl);
-
-    if (!fileRes.ok) {
-      return res.status(fileRes.status).json({
-        success: false,
-        error: `Remote storage server returned HTTP ${fileRes.status}`
-      });
-    }
-
-    const contentType = (fileRes.headers.get('content-type') || '').toLowerCase();
-    // Strict Prevention of False Downloads: Reject HTML error pages disguised as video files
-    if (contentType.includes('text/html') || contentType.includes('application/json') || contentType.includes('text/plain')) {
-      return res.status(422).json({
-        success: false,
-        error: 'Remote source returned an HTML/error response instead of an actual video file.'
-      });
-    }
-
-    const remoteDisp = fileRes.headers.get('content-disposition');
-    if (remoteDisp) {
-      const fnMatch = remoteDisp.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)["']?/i);
-      if (fnMatch) {
-        try {
-          filename = decodeURIComponent(fnMatch[1]);
-        } catch (e) {
-          filename = fnMatch[1];
-        }
-      }
-    }
-
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Content-Type', fileRes.headers.get('content-type') || 'application/octet-stream');
-    const contentLength = fileRes.headers.get('content-length');
-    if (contentLength) {
-      res.setHeader('Content-Length', contentLength);
-    }
-
-    const nodeStream = Readable.fromWeb(fileRes.body);
-    nodeStream.pipe(res);
-  } catch (err) {
-    console.error('Error streaming download:', err.message);
-    if (!res.headersSent) {
-      res.status(500).send('Error streaming download: ' + err.message);
-    }
-  }
+  // Redirect directly to the CDN edge storage URL (prevents 4.5MB Vercel body limits & timeouts)
+  return res.redirect(302, fileUrl);
 });
 
 // ---------------------------------------------------------------------------
@@ -1686,6 +1650,9 @@ app.get('/api/stream-video', async (req, res) => {
       const manifestText = await videoRes.text();
       const u = new URL(finalUrl);
       const basePath = u.origin + u.pathname.substring(0, u.pathname.lastIndexOf('/'));
+      const host = req.get('host') || 'asiott.vercel.app';
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const backendOrigin = `${protocol}://${host}`;
 
       const rewritten = manifestText.split('\n').map(line => {
         const trimmed = line.trim();
@@ -1697,7 +1664,7 @@ app.get('/api/stream-video', async (req, res) => {
             const absUri = uriVal.startsWith('http')
               ? uriVal
               : (uriVal.startsWith('/') ? (u.origin + uriVal) : (basePath + '/' + uriVal));
-            return `URI="/api/stream-video?url=${encodeURIComponent(absUri)}"`;
+            return `URI="${backendOrigin}/api/stream-video?url=${encodeURIComponent(absUri)}"`;
           });
         }
 
@@ -1705,7 +1672,7 @@ app.get('/api/stream-video', async (req, res) => {
         const absUrl = trimmed.startsWith('http')
           ? trimmed
           : (trimmed.startsWith('/') ? (u.origin + trimmed) : (basePath + '/' + trimmed));
-        return `/api/stream-video?url=${encodeURIComponent(absUrl)}`;
+        return `${backendOrigin}/api/stream-video?url=${encodeURIComponent(absUrl)}`;
       }).join('\n');
 
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');

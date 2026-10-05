@@ -48,14 +48,22 @@
         </a>
       </div>
 
-      <!-- Player Aspect Ratio Controls -->
+      <!-- Player Mode Selector & Screen Rotation Controls -->
       <div class="player-mode-group" id="player-controls-top-group">
+        <button id="toggle-rotate-btn" class="mode-btn" title="Rotate Screen Orientation (Portrait / Landscape)">
+          <i class="fa-solid fa-rotate"></i> <span id="rotate-label">Rotate</span>
+        </button>
         <button id="toggle-aspect-btn" class="mode-btn" title="Toggle Aspect Ratio">
-          <i class="fa-solid fa-desktop"></i> <span id="aspect-label">Horizontal 16:9</span>
+          <i class="fa-solid fa-desktop"></i> <span id="aspect-label">16:9</span>
         </button>
-        <button id="toggle-player-mode-btn" class="mode-btn" title="Toggle Native / Source Player">
-          <i class="fa-solid fa-sliders"></i> <span id="player-mode-label">Direct Stream</span>
-        </button>
+        <div class="segmented-mode-container" id="segmented-mode-container">
+          <button id="btn-mode-direct" class="mode-tab-btn active" title="Play with On-Site Direct Stream Player">
+            <i class="fa-solid fa-bolt"></i> <span>Direct Stream</span>
+          </button>
+          <button id="btn-mode-embed" class="mode-tab-btn" title="Play with Embedded Player">
+            <i class="fa-solid fa-window-maximize"></i> <span>Embedded Player</span>
+          </button>
+        </div>
       </div>
 
       <!-- Main Navigation with Telegram Icon Only -->
@@ -166,6 +174,21 @@
               </div>
 
               <div class="controls-right">
+                <!-- Audio Track Selector -->
+                <button class="ctrl-btn" id="ctrl-audio-btn" title="Audio Tracks (Multi-Audio)">
+                  <i class="fa-solid fa-language"></i>
+                </button>
+
+                <!-- Subtitles / Captions -->
+                <button class="ctrl-btn" id="ctrl-subtitles-btn" title="Subtitles & Captions">
+                  <i class="fa-solid fa-closed-captioning"></i>
+                </button>
+
+                <!-- Screen Rotation Control -->
+                <button class="ctrl-btn" id="ctrl-rotate-btn" title="Rotate Screen Orientation">
+                  <i class="fa-solid fa-mobile-screen-button"></i>
+                </button>
+
                 <!-- Volume / Mute -->
                 <button class="ctrl-btn" id="ctrl-mute-btn" title="Mute/Unmute">
                   <i class="fa-solid fa-volume-high" id="ctrl-volume-icon"></i>
@@ -181,6 +204,40 @@
                   <i class="fa-solid fa-expand" id="ctrl-fullscreen-icon"></i>
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- Audio Tracks Floating Popover -->
+          <div class="player-settings-popover player-track-popover" id="player-audio-popover">
+            <div class="settings-pop-header">
+              <span><i class="fa-solid fa-language"></i> Audio Tracks</span>
+              <button class="settings-close-btn" id="audio-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="track-list" id="audio-tracks-list">
+              <div class="track-item active" data-index="0">
+                <span>Default Audio</span>
+                <i class="fa-solid fa-check"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtitles Floating Popover -->
+          <div class="player-settings-popover player-track-popover" id="player-subtitles-popover">
+            <div class="settings-pop-header">
+              <span><i class="fa-solid fa-closed-captioning"></i> Subtitles & Captions</span>
+              <button class="settings-close-btn" id="subtitles-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="track-list" id="subtitles-tracks-list">
+              <div class="track-item active" data-index="-1">
+                <span>Off</span>
+                <i class="fa-solid fa-check"></i>
+              </div>
+            </div>
+            <div class="custom-sub-upload">
+              <label for="sub-file-input" class="sub-upload-label">
+                <i class="fa-solid fa-file-arrow-up"></i> Load Custom Subtitle (.vtt / .srt)
+              </label>
+              <input type="file" id="sub-file-input" accept=".vtt,.srt" style="display: none;">
             </div>
           </div>
 
